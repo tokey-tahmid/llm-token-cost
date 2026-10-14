@@ -1,0 +1,13 @@
+# site-specific settings and private-identifier patterns stay local
+site.env
+.private-patterns
+# generated workloads (regenerate: workloads/make_workloads.py; checksums in workloads/workloads_meta.json)
+workloads/*.jsonl
+workloads/agent_system.txt
+workloads/sources/
+# job logs, caches
+logs/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store

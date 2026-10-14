@@ -1,0 +1,22 @@
+{
+ "sources": [
+  "pg11.txt",
+  "pg1342.txt",
+  "pg1661.txt",
+  "pg174.txt",
+  "pg2701.txt",
+  "pg345.txt",
+  "pg84.txt",
+  "pg98.txt"
+ ],
+ "chat_prompts": 6570,
+ "agent_prompts": 3576,
+ "system_prefix_chars": 23558,
+ "license": "Project Gutenberg texts (public domain); task text and tool schemas are ours",
+ "seed": 20261014,
+ "sha256": {
+  "chat_1k.jsonl": "ed75c48d48235068",
+  "agent_8k.jsonl": "fe15d8dbf170ff8c",
+  "agent_system.txt": "ce3986c07901882b"
+ }
+}
