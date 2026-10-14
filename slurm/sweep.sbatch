@@ -2,6 +2,8 @@
 #SBATCH --job-name=ltc-sweep
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=128
+# (memory follows CPUs on this partition: request all of them so weights staged in node tmpfs fit)
 #SBATCH --time=01:30:00
 #SBATCH --output=logs/%x-%j.out
 
@@ -43,8 +45,9 @@ echo "download_s=$(( $(date +%s) - t0 )) size=$(du -sh "$LOCAL" | cut -f1)" | te
 export CUDA_VISIBLE_DEVICES=$GPUS
 t0=$(date +%s)
 # shellcheck disable=SC2086
-run_container "$SIF_VLLM" vllm serve "$LOCAL" --served-model-name "$MODEL" --host 127.0.0.1 --port 8000 \
-    --tensor-parallel-size "$TP" ${VLLM_ARGS:-} > "$R/vllm.log" 2>&1 &
+HF_HUB_OFFLINE=1 run_container "$SIF_VLLM" vllm serve "$LOCAL" --served-model-name "$MODEL" --host 127.0.0.1 --port 8000 \
+    --tensor-parallel-size "$TP" --seed 1234 --enable-prefix-caching --no-enable-log-requests \
+    ${VLLM_ARGS:-} > "$R/vllm.log" 2>&1 &
 SRV=$!
 nvidia-smi --query-gpu=timestamp,index,power.draw,utilization.gpu,memory.used --format=csv,noheader,nounits -l 1 \
     > "$R/power.csv" 2>/dev/null &

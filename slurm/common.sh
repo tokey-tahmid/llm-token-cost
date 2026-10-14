@@ -12,7 +12,10 @@ set -eu
 mkdir -p "$SCRATCH"/{hf,home,tmp,cache} logs results/raw
 export HF_HOME=$SCRATCH/hf
 export APPTAINER_CACHEDIR=${APPTAINER_CACHEDIR:-$CONTAINER_DIR/cache}
-export APPTAINER_TMPDIR=${APPTAINER_TMPDIR:-$SCRATCH/tmp}
+# Image conversion temp goes on the shared filesystem: node tmpfs counts against
+# the job's memory limit and a multi-GB OCI->SIF conversion can OOM.
+export APPTAINER_TMPDIR=${APPTAINER_TMPDIR:-$CONTAINER_DIR/tmp}
+mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
 
 # Run a command in a container with the GPUs, a clean environment, and all
 # write caches on node-local scratch (shared filesystems are often read-only
@@ -24,9 +27,18 @@ run_container() {
     apptainer exec --nv --cleanenv "${gpu_env[@]}" \
         --bind "$REPO:$REPO:rw" --bind "$SCRATCH:$SCRATCH:rw" --bind "$CONTAINER_DIR:$CONTAINER_DIR:ro" \
         --home "$SCRATCH/home" --env TMPDIR="$SCRATCH/tmp" --env HF_HOME="$HF_HOME" \
+        --env HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-0}" \
         --env XDG_CACHE_HOME="$SCRATCH/cache" --env TORCHINDUCTOR_CACHE_DIR="$SCRATCH/cache/inductor" \
         --env TRITON_CACHE_DIR="$SCRATCH/cache/triton" --env VLLM_CACHE_ROOT="$SCRATCH/cache/vllm" \
         ${CONTAINER_EXTRA_ARGS:-} "$sif" "$@"
+}
+
+# llama.cpp images ship each tool as a launcher plus lib<tool>-impl.so in /app,
+# found through the image's LD_LIBRARY_PATH, which --cleanenv does not carry.
+run_llamacpp() {
+    local sif=$1; shift
+    CONTAINER_EXTRA_ARGS="${CONTAINER_EXTRA_ARGS:-} --env LD_LIBRARY_PATH=/app:/usr/local/cuda/lib64:/usr/local/nvidia/lib64:/.singularity.d/libs" \
+        run_container "$sif" "$@"
 }
 
 # Block until an OpenAI-compatible server answers, or fail.

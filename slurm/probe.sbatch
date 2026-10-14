@@ -2,6 +2,8 @@
 #SBATCH --job-name=ltc-probe
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=128
+# (memory follows CPUs on this partition: request all of them so weights staged in node tmpfs fit)
 #SBATCH --time=00:30:00
 #SBATCH --output=logs/%x-%j.out
 
