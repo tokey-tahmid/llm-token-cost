@@ -49,8 +49,9 @@ HF_HUB_OFFLINE=1 run_container "$SIF_VLLM" vllm serve "$LOCAL" --served-model-na
     --tensor-parallel-size "$TP" --seed 1234 --enable-prefix-caching --no-enable-log-requests \
     ${VLLM_ARGS:-} > "$R/vllm.log" 2>&1 &
 SRV=$!
-nvidia-smi --query-gpu=timestamp,index,power.draw,utilization.gpu,memory.used --format=csv,noheader,nounits -l 1 \
-    > "$R/power.csv" 2>/dev/null &
+# power.csv: UTC epoch, gpu index, board watts, utilization %, memory MiB (one line per GPU per second)
+( while true; do t=$(date +%s.%N); nvidia-smi --query-gpu=index,power.draw,utilization.gpu,memory.used \
+      --format=csv,noheader,nounits | sed "s/^/$t, /"; sleep 1; done ) > "$R/power.csv" 2>/dev/null &
 SMI=$!
 trap 'kill $SRV $SMI 2>/dev/null || true' EXIT
 wait_ready http://127.0.0.1:8000 1500 $SRV

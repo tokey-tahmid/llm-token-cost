@@ -11,3 +11,6 @@ logs/
 __pycache__/
 *.pyc
 .DS_Store
+
+# python env created by uv for local runs
+.venv/

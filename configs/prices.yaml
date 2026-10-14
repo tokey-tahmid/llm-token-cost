@@ -1,0 +1,27 @@
+# Prices used by analysis/cost.py. Every entry carries its source and date.
+# Refresh both blocks on the day the sweeps are analysed and keep old entries
+# (append, don't overwrite) so every published figure names the prices it used.
+
+gpu_list_prices:            # USD per GPU-hour, A100-SXM4-40GB, on demand
+  as_of: "2026-09-30"
+  source: "computeprices.com provider pages for the A100 SXM 40GB (Lambda, RunPod, Verda), retrieved 2026-10-14"
+  low:  {provider: Verda,  usd_per_gpu_hour: 0.644}
+  mid:  {provider: RunPod, usd_per_gpu_hour: 1.00}
+  high: {provider: Lambda, usd_per_gpu_hour: 1.99}
+
+api_list_prices:            # USD per million tokens, default (non-batch) routing
+  as_of: "2026-10-14"
+  source: "openrouter.ai/api/v1/models, retrieved 2026-10-14"
+  models:
+    "Qwen/Qwen3.8-27B":     {route: "qwen/qwen3.8-27b",    input: 0.04,  output: 2.30}
+    "Qwen/Qwen3.8-27B-FP8": {route: "qwen/qwen3.8-27b",    input: 0.04,  output: 2.30}
+    "openai/gpt-oss-120b":  {route: "openai/gpt-oss-120b", input: 0.037, output: 0.17}
+
+electricity:                # labelled estimate in figures
+  eur_per_kwh: 0.30
+  note: "Approximate Irish domestic unit rate, 2026; GPU board power only (nvidia-smi), host power excluded"
+
+slo:                        # "usable" service for goodput and capacity
+  ttft_p95_s: 2.0
+  tpot_p95_ms: 50.0         # >= 20 tok/s per user
+hours_per_month: 730

@@ -1,0 +1,6 @@
+# HARNESS SELF-TEST, NOT A RESULT: a 0.6B model on a laptop, used only to exercise
+# the analysis code path. The model name is mapped to an API price purely so the
+# code runs; nothing from this fixture is ever reported.
+label: harness-selftest
+model: {repo: "openai/gpt-oss-120b"}
+engine: {name: llama.cpp, tp: 1}

@@ -62,7 +62,13 @@ scripts/submit.sh slurm/probe.sbatch      # hardware facts + end-to-end check
 scripts/submit_sweeps.sh                  # one job per serving configuration
 ```
 
-Analysis and figures are regenerated from `results/raw/` with one command, added with the first results.
+Tables and figures regenerate from `results/raw/` with one command:
+
+```bash
+python analysis/cost.py && python analysis/figures.py   # results/tables/, results/figures/
+```
+
+Prices live in `configs/prices.yaml`, each with its source and date.
 
 ## Rules this repository follows
 
