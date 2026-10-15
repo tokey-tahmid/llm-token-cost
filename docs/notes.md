@@ -18,8 +18,8 @@ Runs (all with fixed output lengths verified: 0 incomplete outputs, errors under
 | gpt-oss-120b, 4 GPUs, 8K in / 1K out | 4 | 515 tok/s | $1.39 / $2.16 | $0.36 / $1.21 |
 | Qwen3.8-27B BF16, 2 GPUs, chat | 12 | 383 tok/s | $0.93 / $1.45 | $0.55 / $2.87 |
 | Qwen3.8-27B BF16, 2 GPUs, agent | 6 | 187 tok/s | $1.91 / $2.97 | $0.99 / $7.40 |
-| Qwen3.8-27B FP8, 1 GPU, chat | 4 (knee run queued) | 139 tok/s | $1.28 / $1.99 | $0.55 / $2.87 |
-| Qwen3.8-27B FP8, 1 GPU, agent | 1 | 38 tok/s | $4.73 / $7.35 | $0.99 / $7.36 |
+| Qwen3.8-27B FP8, 1 GPU, chat | 6 (knee run) | 193 tok/s | $0.93 / $1.44 | $0.55 / $2.86 |
+| Qwen3.8-27B FP8, 1 GPU, agent | 2 (knee run) | 68 tok/s | $2.65 / $4.11 | $0.99 / $7.37 |
 
 **Agents are where self-hosting wins.** The agent prompt repeats a 6K-token prefix that the server caches (78% of prompt tokens served from cache on 4 GPUs, 59% on 2, 75% for Qwen), while every API provider bills it on each request. gpt-oss on 2 GPUs beats the cheapest provider within the SLO even at the mid GPU rate ($0.84 vs $0.86); on 4 GPUs, at the low rate. The 8K/1K workload has no shared prefix and the opposite result: prefill keeps time to first token over 2 s beyond 4 users, and the API wins at every rate.
 
@@ -34,6 +34,10 @@ Runs (all with fixed output lengths verified: 0 incomplete outputs, errors under
 - H4, the API is cheaper for agents at every load: **false for gpt-oss** (above); for Qwen, false only beyond the SLO (64 users: $0.59 at the low rate against $0.99).
 
 **Energy** (GPU board power only): 4 GPUs drew 706 W at 1 chat user and 1,389 W at 256; 3.1 to 0.23 J per output token, €0.26 to €0.02 per 1M tokens at €0.30/kWh. Idle with the model loaded: 61 to 63 W per GPU (60 s window, `run_facts.csv`).
+
+**The engine matters as much as the GPU price, at least for gpt-oss on A100** (`…-gptoss120b-tp4-sglang-5344814`, SGLang v0.5.21, engine defaults apart from context length). One user: 142 tok/s against vLLM's 225. From 16 users up, SGLang plateaued near 400 tok/s while vLLM reached 3,680 at 64 users; p95 time to first token was 12 s at 16 users. SGLang's log warns that its MXFP4 path "is not fully optimized yet", and its own decode-step throughput (1,282 tok/s at 16 running requests) shows that prompt processing, admitted one request at a time, is the bottleneck. The run hit its 90-minute limit during the 256-user chat level (1 rep there); the agent workload did not run. This is a statement about SGLang's MXFP4 path on Ampere, not about SGLang in general; a run on a path it optimizes (Qwen BF16, 2 GPUs) is being checked. Tuning effort: none beyond defaults, for either engine.
+
+**Qwen FP8 knee run** (`…-qwen27b-fp8-tp1-knee-5344815`): one GPU holds the SLO to 6 chat users (193 tok/s, p95 first token 1.97 s) and 2 agent users; repeated levels match the main run within 0.5%.
 
 **Against published newer GPUs** (labelled, not our measurement: `configs/published_gpu_benchmarks.yaml`). On the 8K/1K shape at about 50 tok/s per user, 4 A100s deliver 3,112 input + output tokens per second per GPU (32 users; p95 first token 8.4 s, a limit the published runs do not apply). SemiAnalysis InferenceX lists 8,973 for H100 and 44,489 for B200 at 50 tok/s per user (vLLM, FP4). Different team, versions and tuning.
 
