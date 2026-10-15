@@ -1,0 +1,2 @@
+start 2026-10-15T10:10:12Z label=gptoss120b-tp4-sglang model=openai/gpt-oss-120b@b5c939de8f754692c1647ca79fbf85e8c1e70f8a tp=4 gpus=0,1,2,3 engine=sglang
+download_s=97 size=61G

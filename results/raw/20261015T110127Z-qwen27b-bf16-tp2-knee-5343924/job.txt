@@ -1,0 +1,5 @@
+start 2026-10-15T11:01:27Z label=qwen27b-bf16-tp2 model=Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0 tp=2 gpus=0,1 engine=vllm
+download_s=46 size=52G
+startup_s=337
+idle_from=1792062475.017824762 idle_to=1792062535.029587837
+status=complete done=2026-10-15T11:37:33Z

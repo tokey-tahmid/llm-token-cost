@@ -51,6 +51,8 @@ def pretty(cfg: str, model: str, tp: int) -> str:
     """Viewer-facing config name: model, precision when the label names one, GPU count."""
     name = model.split("/")[-1]
     prec = next((p.upper() for p in ("bf16", "fp8", "int4", "awq", "gptq") if p in cfg.lower()), "")
+    if prec and prec in name.upper():
+        name, prec = name[: name.upper().index(prec)].rstrip("-_ "), prec
     eng = ", SGLang" if "sglang" in cfg.lower() else ""
     return f"{name}{' ' + prec if prec else ''}, {tp} GPU{'s' if tp > 1 else ''}{eng}"
 
@@ -90,7 +92,11 @@ def dollar_log_axis(ax) -> None:
 
 
 def cost_per_m(df, prices, workload, out):
-    d = df[df["workload"] == workload]
+    for route, d in df[df["workload"] == workload].groupby("route"):
+        cost_per_m_one(d, prices, workload, route, out)
+
+
+def cost_per_m_one(d, prices, workload, route, out):
     fig, ax = plt.subplots()
     fig.subplots_adjust(left=0.1, right=0.78, top=0.8, bottom=0.2)
     labels = []
@@ -103,7 +109,7 @@ def cost_per_m(df, prices, workload, out):
         last = g.iloc[-1]
         labels.append((last["concurrency"], last["usd_per_m_out_mid"], pretty(cfg, last["model"], last["tp"]), c))
     xmin, xmax = d["concurrency"].min(), d["concurrency"].max()
-    for m, g in d.groupby("model"):  # API bill for the same requests, input tokens included
+    for m, g in d.groupby("route"):  # API bill for the same requests, input tokens included
         for col, what, dash in (("api_usd_per_m_out_median", "median provider", (0, (6, 4))),
                                 ("api_usd_per_m_out_cheapest", "cheapest provider", (0, (2, 3)))):
             api = g[col].median()
@@ -117,15 +123,16 @@ def cost_per_m(df, prices, workload, out):
     ax.set_xlabel("Concurrent users (log scale)")
     ax.set_ylabel("USD per 1M output tokens (log scale)")
     end_labels(ax, labels)
-    style.titles(fig, ax, f"What a million output tokens costs, {workload} workload",
+    name = min(d["model"], key=len).split("/")[-1]  # the family's base model name (BF16 repo)
+    style.titles(fig, ax, f"What a million output tokens costs: {name}, {workload}",
                  "Line: mid A100 rate, band: low to high. Dashed: API bill for the same requests. Hollow: misses SLO.")
     style.source_line(fig, footer(prices, "\nSLO: first token within 2 s and at least 20 tok/s per user, both at p95"))
-    fig.savefig(out / f"cost_per_m_{workload}.png")
+    fig.savefig(out / f"cost_per_m_{workload}_{route.split('/')[-1]}.png")
     plt.close(fig)
 
 
 def monthly(mon, prices, workload, out):
-    for m, d in mon[mon["workload"] == workload].groupby("model"):
+    for m, d in mon[mon["workload"] == workload].groupby("route"):
         fig, ax = plt.subplots()
         fig.subplots_adjust(left=0.1, right=0.84, top=0.8, bottom=0.2)
         cfgs = d.drop_duplicates("config")
@@ -153,7 +160,7 @@ def monthly(mon, prices, workload, out):
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v:,.0f}"))
         ax.set_xlim(0, vmax / 1e9)
         ax.set_ylim(0, ytop)
-        style.titles(fig, ax, f"When does renting GPUs beat the API? {m.split('/')[-1]}, {workload}",
+        style.titles(fig, ax, f"When does renting GPUs beat the API? {min(d['model'], key=len).split('/')[-1]}, {workload}",
                      "Solid: GPUs rented 24/7 at the mid rate, flat up to their capacity within the SLO.")
         style.source_line(fig, footer(prices, "\ncapacity = max measured throughput with TTFT p95 ≤ 2 s and ≥ 20 tok/s per user (p95)"))
         fig.savefig(out / f"monthly_{workload}_{m.split('/')[-1]}.png")
@@ -202,6 +209,10 @@ def main() -> None:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     style.use("dark")
+    routes = {k: v["route"] for k, v in prices["api_list_prices"]["models"].items()}  # one API market per model family
+    df["route"], mon["route"] = df["model"].map(routes), mon["model"].map(routes)
+    for f in out.glob("*.png"):  # names depend on the data; stale ones would linger
+        f.unlink()
     for w in sorted(df["workload"].unique()):
         cost_per_m(df, prices, w, out)
         monthly(mon, prices, w, out)

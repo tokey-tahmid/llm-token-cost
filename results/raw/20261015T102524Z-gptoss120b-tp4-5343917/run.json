@@ -1,0 +1,113 @@
+{
+  "collected_utc": "2026-10-15T10:31:02Z",
+  "git_sha": "fa7c2956d2f178dea9a04f5cd73595473984792e",
+  "git_dirty": true,
+  "slurm_job_id": "5343917",
+  "hardware": {
+    "os": "Linux 4.18.0-553.170.1.el8_10.x86_64",
+    "arch": "x86_64",
+    "gpus": [
+      {
+        "name": "NVIDIA A100-SXM4-40GB",
+        "driver": "610.57.04",
+        "memory": "40960 MiB",
+        "power_limit": "400.00 W",
+        "pcie_gen_max": "4",
+        "pcie_width": "16"
+      },
+      {
+        "name": "NVIDIA A100-SXM4-40GB",
+        "driver": "610.57.04",
+        "memory": "40960 MiB",
+        "power_limit": "400.00 W",
+        "pcie_gen_max": "4",
+        "pcie_width": "16"
+      },
+      {
+        "name": "NVIDIA A100-SXM4-40GB",
+        "driver": "610.57.04",
+        "memory": "40960 MiB",
+        "power_limit": "400.00 W",
+        "pcie_gen_max": "4",
+        "pcie_width": "16"
+      },
+      {
+        "name": "NVIDIA A100-SXM4-40GB",
+        "driver": "610.57.04",
+        "memory": "40960 MiB",
+        "power_limit": "400.00 W",
+        "pcie_gen_max": "4",
+        "pcie_width": "16"
+      }
+    ],
+    "cuda": null,
+    "cpu": "AMD EPYC 7452 32-Core Processor",
+    "cpu_cores": "128",
+    "ram_gb": 503.2,
+    "kernel": "4.18.0-553.170.1.el8_10.x86_64"
+  },
+  "engine": {
+    "/version": {
+      "version": "0.31.0"
+    },
+    "/v1/models": {
+      "object": "list",
+      "data": [
+        {
+          "id": "openai/gpt-oss-120b",
+          "object": "model",
+          "created": 1792060265,
+          "owned_by": "vllm",
+          "root": "/dev/shm/<redacted>-bench/hf/hub/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+          "parent": null,
+          "max_model_len": 16384,
+          "permission": [
+            {
+              "id": "modelperm-8dd963bdbf6af378",
+              "object": "model_permission",
+              "created": 1792060265,
+              "allow_create_engine": false,
+              "allow_sampling": true,
+              "allow_logprobs": true,
+              "allow_search_indices": false,
+              "allow_view": true,
+              "allow_fine_tuning": false,
+              "organization": "*",
+              "group": null,
+              "is_blocking": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "config": {
+    "run_id": "20261015T102524Z-gptoss120b-tp4-5343917",
+    "label": "gptoss120b-tp4",
+    "host_label": "a100-40gb-sxm-node",
+    "billing": "allocated cluster time (no per-hour bill; priced at public list rates in analysis)",
+    "engine": {
+      "name": "vLLM",
+      "image": "vllm/vllm-openai:v0.31.0",
+      "tp": 4,
+      "gpus": "0,1,2,3",
+      "args": "--max-model-len 16384 --gpu-memory-utilization 0.92"
+    },
+    "model": {
+      "repo": "openai/gpt-oss-120b",
+      "revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a"
+    },
+    "command": "vllm serve <snapshot of openai/gpt-oss-120b@b5c939de8f754692c1647ca79fbf85e8c1e70f8a> --served-model-name openai/gpt-oss-120b --host 127.0.0.1 --port 8000 --tensor-parallel-size 4 --seed 1234 --enable-prefix-caching --no-enable-log-requests --max-model-len 16384 --gpu-memory-utilization 0.92",
+    "workloads": {
+      "chat": "workloads/chat_1k.jsonl",
+      "agent": "workloads/agent_8k.jsonl",
+      "long": "workloads/long_8k1k.jsonl",
+      "chat_conc": "1 4 16 24 32 48 64 256",
+      "agent_conc": "1 4 8 16 24 32 48 64 128",
+      "long_conc": "",
+      "reps": 3,
+      "extra_body": "{\"min_tokens\": \"max_tokens\", \"reasoning_effort\": \"low\"}"
+    },
+    "notes": "fixed output lengths (ignore_eos); unique prompts per request (--fresh); prefix caching on"
+  }
+}

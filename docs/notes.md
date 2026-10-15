@@ -2,6 +2,41 @@
 
 Findings, surprises and corrections, dated. Numbers come from `results/tables/` unless a log is named.
 
+## 2026-10-15 · Results after the rerun
+
+Runs (all with fixed output lengths verified: 0 incomplete outputs, errors under 0.1%):
+`…-gptoss120b-tp4-5343917`, `…-gptoss120b-tp2-5343918`, `…-gptoss120b-tp4-long-5343919`, `…-qwen27b-bf16-tp2-5343416` plus its knee run `…-5343924`, and `…-qwen27b-fp8-tp1-5343452`, which hit its time limit after chat and agent levels 1-16 (agent 64 and 128 not measured; 16 already misses the SLO by 8 s). A100-SXM4-40GB, vLLM v0.31.0, 3 reps per level. The 7 remaining errors were client-side: the HTTP library also split lines at U+2028 inside JSON (fixed in `bench/loadgen.py`).
+
+**Capacity within the SLO and cost per 1M output tokens** (API = the bill for the same requests, input included, at the cheapest and median live provider on 2026-10-15):
+
+| Config, workload | Users within SLO | Throughput | Self-hosted, low / mid GPU rate | API cheapest / median |
+|---|---|---|---|---|
+| gpt-oss-120b, 4 GPUs, chat | 48 | 3,216 tok/s | $0.22 / $0.35 | $0.22 / $0.75 |
+| gpt-oss-120b, 2 GPUs, chat | 32 | 1,634 tok/s | $0.22 / $0.34 | $0.22 / $0.75 |
+| gpt-oss-120b, 4 GPUs, agent | 16 | 1,211 tok/s | $0.59 / $0.92 | $0.86 / $2.88 |
+| gpt-oss-120b, 2 GPUs, agent | 12 | 659 tok/s | $0.54 / $0.84 | $0.86 / $2.88 |
+| gpt-oss-120b, 4 GPUs, 8K in / 1K out | 4 | 515 tok/s | $1.39 / $2.16 | $0.36 / $1.21 |
+| Qwen3.8-27B BF16, 2 GPUs, chat | 12 | 383 tok/s | $0.93 / $1.45 | $0.55 / $2.87 |
+| Qwen3.8-27B BF16, 2 GPUs, agent | 6 | 187 tok/s | $1.91 / $2.97 | $0.99 / $7.40 |
+| Qwen3.8-27B FP8, 1 GPU, chat | 4 (knee run queued) | 139 tok/s | $1.28 / $1.99 | $0.55 / $2.87 |
+| Qwen3.8-27B FP8, 1 GPU, agent | 1 | 38 tok/s | $4.73 / $7.35 | $0.99 / $7.36 |
+
+**Agents are where self-hosting wins.** The agent prompt repeats a 6K-token prefix that the server caches (78% of prompt tokens served from cache on 4 GPUs, 59% on 2, 75% for Qwen), while every API provider bills it on each request. gpt-oss on 2 GPUs beats the cheapest provider within the SLO even at the mid GPU rate ($0.84 vs $0.86); on 4 GPUs, at the low rate. The 8K/1K workload has no shared prefix and the opposite result: prefill keeps time to first token over 2 s beyond 4 users, and the API wins at every rate.
+
+**Per month** (`monthly_breakeven.csv`, renting 24/7 against capacity within the SLO):
+- against the median provider, every configuration wins at the low and mid GPU rate except the 8K/1K workload; gpt-oss wins even at the highest rate;
+- against the cheapest provider, gpt-oss chat wins only at the lowest rate and by a hair (4 GPUs: break-even 8.40B output tokens a month, capacity 8.45B); gpt-oss agent wins at the low rate (2 GPUs also at the mid rate); Qwen never does.
+
+**Hypotheses as registered in the brief** (against the price it named: gpt-oss $0.037 in / $0.17 out, Qwen $0.04 / $2.30):
+- H1, one user costs ≥ 20× the API: **false**. Chat at one user costs 3× to 19× the named price at the mid rate (gpt-oss 4 GPUs 18.8×, Qwen FP8 2.9×). Against the cheapest provider, 12× to 24×.
+- H2, Qwen beats its API price from ≤ 16 users on one A100: **true** (FP8, one GPU, 4 users within the SLO: $1.99 against $2.40 for the same requests). gpt-oss never beats its API price on A100s: **false**; 4 GPUs at 48 chat users and the lowest rate cost $0.22 against $0.26.
+- H3, holding the SLO at least doubles the cost per token: **mixed**. Ratio of the cheapest level within the SLO to the cheapest level at all: gpt-oss chat 1.3× (2 GPUs) and 1.9× (4 GPUs), gpt-oss agent 1.2× and 2.0×, Qwen 3.0× to 3.3× (FP8 agent 5.5×), 8K/1K 3.7×.
+- H4, the API is cheaper for agents at every load: **false for gpt-oss** (above); for Qwen, false only beyond the SLO (64 users: $0.59 at the low rate against $0.99).
+
+**Energy** (GPU board power only): 4 GPUs drew 706 W at 1 chat user and 1,389 W at 256; 3.1 to 0.23 J per output token, €0.26 to €0.02 per 1M tokens at €0.30/kWh. Idle with the model loaded: 61 to 63 W per GPU (60 s window, `run_facts.csv`).
+
+**Against published newer GPUs** (labelled, not our measurement: `configs/published_gpu_benchmarks.yaml`). On the 8K/1K shape at about 50 tok/s per user, 4 A100s deliver 3,112 input + output tokens per second per GPU (32 users; p95 first token 8.4 s, a limit the published runs do not apply). SemiAnalysis InferenceX lists 8,973 for H100 and 44,489 for B200 at 50 tok/s per user (vLLM, FP4). Different team, versions and tuning.
+
 ## 2026-10-15 · Correction: the first gpt-oss-120b results are withdrawn
 
 Every gpt-oss-120b run so far asked for a fixed output length with `ignore_eos`. gpt-oss ends an answer with a harmony end token; ignoring it let generation continue, and vLLM's streaming parser then raised `HarmonyError: Unexpected token 200002 while expecting start token 200006` (2,025 times in one run's log). The stream ended without a finish reason or usage. Share of requests cut short: about 58% on the agent workload, 59% on the 8K/1K workload, 3% on chat. The client ignored the in-stream error event, so the runs looked clean.

@@ -1,0 +1,5 @@
+start 2026-10-15T10:25:21Z label=gptoss120b-tp2 model=openai/gpt-oss-120b@b5c939de8f754692c1647ca79fbf85e8c1e70f8a tp=2 gpus=0,1 engine=vllm
+download_s=114 size=61G
+startup_s=226
+idle_from=1792060265.886836022 idle_to=1792060325.898571740
+status=complete done=2026-10-15T11:34:47Z

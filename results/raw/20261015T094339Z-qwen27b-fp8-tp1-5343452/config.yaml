@@ -1,0 +1,10 @@
+run_id: "20261015T094339Z-qwen27b-fp8-tp1-5343452"
+label: "qwen27b-fp8-tp1"
+host_label: "a100-40gb-sxm-node"
+billing: allocated cluster time (no per-hour bill; priced at public list rates in analysis)
+engine: {name: vLLM, image: "vllm/vllm-openai:v0.31.0", tp: 1, gpus: "0", args: '--max-model-len 16384 --gpu-memory-utilization 0.92 --max-num-seqs 96 --limit-mm-per-prompt {"image":0,"video":0}'}
+model: {repo: "Qwen/Qwen3.8-27B-FP8", revision: "017b9c7af6b5689d5dd426a76e0bc077eb5ca20a"}
+command: 'vllm serve <snapshot of Qwen/Qwen3.8-27B-FP8@017b9c7af6b5689d5dd426a76e0bc077eb5ca20a> --tensor-parallel-size 1 --seed 1234 --enable-prefix-caching --max-model-len 16384 --gpu-memory-utilization 0.92 --max-num-seqs 96 --limit-mm-per-prompt {"image":0,"video":0}'
+workloads: {chat: "workloads/chat_1k.jsonl", agent: "workloads/agent_8k.jsonl",
+            chat_conc: "1 4 16 64 256", agent_conc: "1 4 16 64 128", reps: 3, extra_body: '{"ignore_eos": true, "chat_template_kwargs": {"enable_thinking": false}}'}
+notes: fixed output lengths (ignore_eos); unique prompts per request (--fresh); prefix caching on (vLLM default)

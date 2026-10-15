@@ -1,0 +1,113 @@
+{
+  "collected_utc": "2026-10-15T11:07:51Z",
+  "git_sha": "fa7c2956d2f178dea9a04f5cd73595473984792e",
+  "git_dirty": true,
+  "slurm_job_id": "5343924",
+  "hardware": {
+    "os": "Linux 4.18.0-553.170.1.el8_10.x86_64",
+    "arch": "x86_64",
+    "gpus": [
+      {
+        "name": "NVIDIA A100-SXM4-40GB",
+        "driver": "610.57.04",
+        "memory": "40960 MiB",
+        "power_limit": "400.00 W",
+        "pcie_gen_max": "4",
+        "pcie_width": "16"
+      },
+      {
+        "name": "NVIDIA A100-SXM4-40GB",
+        "driver": "610.57.04",
+        "memory": "40960 MiB",
+        "power_limit": "400.00 W",
+        "pcie_gen_max": "4",
+        "pcie_width": "16"
+      },
+      {
+        "name": "NVIDIA A100-SXM4-40GB",
+        "driver": "610.57.04",
+        "memory": "40960 MiB",
+        "power_limit": "400.00 W",
+        "pcie_gen_max": "4",
+        "pcie_width": "16"
+      },
+      {
+        "name": "NVIDIA A100-SXM4-40GB",
+        "driver": "610.57.04",
+        "memory": "40960 MiB",
+        "power_limit": "400.00 W",
+        "pcie_gen_max": "4",
+        "pcie_width": "16"
+      }
+    ],
+    "cuda": null,
+    "cpu": "AMD EPYC 7452 32-Core Processor",
+    "cpu_cores": "128",
+    "ram_gb": 503.2,
+    "kernel": "4.18.0-553.170.1.el8_10.x86_64"
+  },
+  "engine": {
+    "/version": {
+      "version": "0.31.0"
+    },
+    "/v1/models": {
+      "object": "list",
+      "data": [
+        {
+          "id": "Qwen/Qwen3.8-27B",
+          "object": "model",
+          "created": 1792062474,
+          "owned_by": "vllm",
+          "root": "/dev/shm/<redacted>-bench/hf/hub/models--Qwen--Qwen3.8-27B/snapshots/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "parent": null,
+          "max_model_len": 16384,
+          "permission": [
+            {
+              "id": "modelperm-9e3d2eaed8fab087",
+              "object": "model_permission",
+              "created": 1792062474,
+              "allow_create_engine": false,
+              "allow_sampling": true,
+              "allow_logprobs": true,
+              "allow_search_indices": false,
+              "allow_view": true,
+              "allow_fine_tuning": false,
+              "organization": "*",
+              "group": null,
+              "is_blocking": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "config": {
+    "run_id": "20261015T110127Z-qwen27b-bf16-tp2-knee-5343924",
+    "label": "qwen27b-bf16-tp2",
+    "host_label": "a100-40gb-sxm-node",
+    "billing": "allocated cluster time (no per-hour bill; priced at public list rates in analysis)",
+    "engine": {
+      "name": "vLLM",
+      "image": "vllm/vllm-openai:v0.31.0",
+      "tp": 2,
+      "gpus": "0,1",
+      "args": "--max-model-len 16384 --gpu-memory-utilization 0.92 --limit-mm-per-prompt {\"image\":0,\"video\":0}"
+    },
+    "model": {
+      "repo": "Qwen/Qwen3.8-27B",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+    },
+    "command": "vllm serve <snapshot of Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0> --served-model-name Qwen/Qwen3.8-27B --host 127.0.0.1 --port 8000 --tensor-parallel-size 2 --seed 1234 --enable-prefix-caching --no-enable-log-requests --max-model-len 16384 --gpu-memory-utilization 0.92 --limit-mm-per-prompt {\"image\":0,\"video\":0}",
+    "workloads": {
+      "chat": "workloads/chat_1k.jsonl",
+      "agent": "workloads/agent_8k.jsonl",
+      "long": "workloads/long_8k1k.jsonl",
+      "chat_conc": "4 6 8 12 16",
+      "agent_conc": "4 6 8 12 16",
+      "long_conc": "",
+      "reps": 3,
+      "extra_body": "{\"ignore_eos\": true, \"chat_template_kwargs\": {\"enable_thinking\": false}}"
+    },
+    "notes": "fixed output lengths (ignore_eos); unique prompts per request (--fresh); prefix caching on"
+  }
+}
