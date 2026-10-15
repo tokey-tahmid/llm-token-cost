@@ -31,9 +31,16 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKLOADS = {"chat_1k": "chat", "agent_8k": "agent", "long_8k1k": "long"}
 
 
+def excluded(raw_dir: Path) -> dict[str, str]:
+    """results/excluded_runs.yaml: runs kept as records but left out of the analysis, with the reason."""
+    f = raw_dir.parent / "excluded_runs.yaml"
+    return {e["run_id"]: e["reason"] for e in (yaml.safe_load(f.read_text()) or [])} if f.exists() else {}
+
+
 def load_runs(raw_dir: Path) -> pd.DataFrame:
-    rows = []
-    for run in sorted(p for p in raw_dir.iterdir() if (p / "summary.csv").exists() and "-smoke-" not in p.name):
+    rows, skip = [], excluded(raw_dir)
+    for run in sorted(p for p in raw_dir.iterdir() if (p / "summary.csv").exists() and "-smoke-" not in p.name
+                      and p.name not in skip):
         cfg = yaml.safe_load((run / "config.yaml").read_text()) if (run / "config.yaml").exists() else {}
         s = pd.read_csv(run / "summary.csv")
         per_rep = pd.read_csv(run / "summary_per_rep.csv") if (run / "summary_per_rep.csv").exists() else None
@@ -48,6 +55,11 @@ def load_runs(raw_dir: Path) -> pd.DataFrame:
         s["engine"] = eng.get("name", "vLLM")
         s["workload"] = s["label"].str.rsplit("-", n=1).str[-1].map(WORKLOADS)
         s["power_w"] = [mean_power(run, r) for r in s.itertuples()]
+        if "incomplete" in s:  # outputs shorter than requested: the run did not run as designed
+            bad = s[(s["incomplete"] + s["errors"]) > 0.01 * s["requests"]]
+            for r in bad.itertuples():
+                print(f"WARNING {run.name} {r.label} c={r.concurrency}: {r.errors} errors, {r.incomplete} incomplete "
+                      f"of {r.requests} requests")
         rows.append(s)
     if not rows:
         raise SystemExit(f"no runs with summary.csv under {raw_dir}")
@@ -294,8 +306,9 @@ def main() -> None:
     a = ap.parse_args()
     prices = yaml.safe_load(Path(a.prices).read_text())
     df, repeats = split_repeats(load_runs(Path(a.raw)))
-    facts = pd.DataFrame([f for run in sorted(Path(a.raw).iterdir())
-                          if (run / "summary.csv").exists() and "-smoke-" not in run.name for f in run_facts(run)])
+    skip = excluded(Path(a.raw))
+    facts = pd.DataFrame([f for run in sorted(Path(a.raw).iterdir()) if (run / "summary.csv").exists()
+                          and "-smoke-" not in run.name and run.name not in skip for f in run_facts(run)])
     hits = {(r.config, r.workload): r.prefix_cache_hit_rate for r in facts.itertuples()} if len(facts) else {}
     routes = {m: v["route"] for m, v in prices["api_list_prices"]["models"].items()}
     endpoints = {m: api_endpoints(Path(a.api_prices), route, a.api_day) for m, route in routes.items()}

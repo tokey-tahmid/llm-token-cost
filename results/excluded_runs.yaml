@@ -1,0 +1,13 @@
+# Runs kept as records but left out of every table and figure. analysis/cost.py reads this list.
+# Each entry says why; nothing is removed from results/raw/.
+- run_id: 20261015T003247Z-gptoss120b-tp2-5341553
+  reason: &harmony >-
+    gpt-oss with ignore_eos: generation ran past the harmony end token and vLLM's streaming parser
+    raised HarmonyError, cutting ~58% of agent requests (and ~3% of chat) short without usage.
+    Load was lighter than nominal and token counts were incomplete. Rerun with min_tokens = max_tokens.
+- run_id: 20261015T011211Z-gptoss120b-tp4-5341554
+  reason: *harmony
+- run_id: 20261015T090434Z-gptoss120b-tp4-knee-5343438
+  reason: *harmony
+- run_id: 20261015T094339Z-gptoss120b-tp2-knee-5343439
+  reason: *harmony

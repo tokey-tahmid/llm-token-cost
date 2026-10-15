@@ -53,6 +53,10 @@ async def one_request(client: httpx.AsyncClient, url: str, body: dict, save_text
                 if data == "[DONE]":
                     break
                 ev = json.loads(data)
+                if ev.get("error") or ev.get("object") == "error":  # the server failed mid-stream
+                    err = ev.get("error", ev)
+                    rec["error"] = "stream: " + (err.get("message", str(err)) if isinstance(err, dict) else str(err))[:280]
+                    continue
                 if ev.get("usage"):
                     rec["usage"] = ev["usage"]
                 for ch in ev.get("choices") or []:
@@ -111,6 +115,8 @@ async def run_level(a, prompts: list[dict], conc: int, rep: int, sink, start: in
                             "max_tokens": p.get("max_tokens", a.max_tokens),
                             "temperature": a.temperature, "seed": a.seed + i}
                     body |= a.extra_body
+                    if body.get("min_tokens") == "max_tokens":  # fixed output length without ignore_eos
+                        body["min_tokens"] = body["max_tokens"]
                     rec = await one_request(client, url, body, a.save_text)
                     rec |= {"run_id": a.run_id, "label": a.label, "concurrency": conc,
                             "rep": rep, "seq": i, "worker": w, "prompt_id": p["id"],

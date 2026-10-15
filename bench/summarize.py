@@ -43,11 +43,15 @@ def summarize(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     rows = []
     for (label, conc, rep), g in m.groupby(["label", "concurrency", "rep"]):
         ok = g[g["error"].isna()]
+        # an output shorter than requested, or without the engine's usage report, means the
+        # request did not run as designed (fixed output length); count it, never hide it
+        want = ok["max_tokens"] if "max_tokens" in ok else pd.Series(np.nan, index=ok.index)
+        incomplete = int((ok["completion_tokens"].isna() | (ok["completion_tokens"] < want)).sum())
         itl = np.concatenate([np.diff(c) for c in ok["chunk_t"] if len(c) > 1] or [np.array([])])
         window = ok["t_end_wall"].max() - ok["t_wall"].min() if len(ok) else np.nan
         rows.append({
             "label": label, "concurrency": conc, "rep": rep,
-            "n_ok": len(ok), "n_err": int(g["error"].notna().sum()),
+            "n_ok": len(ok), "n_err": int(g["error"].notna().sum()), "n_incomplete": incomplete,
             "prompt_tokens_med": ok["prompt_tokens"].median(),
             "completion_tokens_med": ok["completion_tokens"].median(),
             "ttft_med_s": q(ok["ttft_s"], 50), "ttft_p95_s": q(ok["ttft_s"], 95), "ttft_p99_s": q(ok["ttft_s"], 99),
@@ -67,7 +71,8 @@ def summarize(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     across = g[agg_cols].median().add_suffix("")
     lo, hi = g[agg_cols].min().add_suffix("_min"), g[agg_cols].max().add_suffix("_max")
     across = across.join(lo).join(hi).join(g["rep"].count().rename("reps")).join(
-        g["n_err"].sum().rename("errors")).reset_index()
+        g["n_err"].sum().rename("errors")).join(g["n_incomplete"].sum().rename("incomplete")).join(
+        (g["n_ok"].sum() + g["n_err"].sum()).rename("requests")).reset_index()
     return per_rep, across
 
 

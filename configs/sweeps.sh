@@ -5,7 +5,10 @@ QWEN_FP8=017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
 GPTOSS=b5c939de8f754692c1647ca79fbf85e8c1e70f8a
 NO_MM='--limit-mm-per-prompt {"image":0,"video":0}'
 QWEN_BODY='{"ignore_eos": true, "chat_template_kwargs": {"enable_thinking": false}}'
-OSS_BODY='{"ignore_eos": true, "reasoning_effort": "low"}'
+# gpt-oss: ignore_eos lets generation run past the harmony end token, which crashes vLLM's
+# streaming parser (HarmonyError, ~58% of agent requests cut short in jobs 5341553/54, 5343438/39,
+# 5343670). min_tokens = max_tokens masks the stop tokens instead (loadgen fills in the number).
+OSS_BODY='{"min_tokens": "max_tokens", "reasoning_effort": "low"}'
 SWEEPS=(
   "qwen27b-bf16-tp2|Qwen/Qwen3.8-27B|$QWEN|2|--max-model-len 16384 --gpu-memory-utilization 0.92 $NO_MM|$QWEN_BODY|01:40:00"
   # one 40 GB GPU: the default sequence limit makes CUDA-graph profiling allocate 12.25 GiB of
