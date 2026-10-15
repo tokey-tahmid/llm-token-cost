@@ -39,7 +39,7 @@ from huggingface_hub import snapshot_download
 import json
 print(snapshot_download('$MODEL', revision='$REVISION', allow_patterns=json.loads('''$ALLOW'''),
                         ignore_patterns=json.loads('''$IGNORE''')))" | tail -1)
-echo "download_s=$(( $(date +%s) - t0 )) size=$(du -sh "$LOCAL" | cut -f1)" | tee -a "$R/job.txt"
+echo "download_s=$(( $(date +%s) - t0 )) size=$(du -shL "$LOCAL" | cut -f1)" | tee -a "$R/job.txt"
 
 # 2. server
 export CUDA_VISIBLE_DEVICES=$GPUS
@@ -62,9 +62,9 @@ run_id: "$RUN_ID"
 label: "$LABEL"
 host_label: "${HOST_LABEL:-a100-40gb-sxm-node}"
 billing: allocated cluster time (no per-hour bill; priced at public list rates in analysis)
-engine: {name: vLLM, image: "$VLLM_IMAGE", tp: $TP, gpus: "$GPUS", args: "${VLLM_ARGS:-}"}
+engine: {name: vLLM, image: "$VLLM_IMAGE", tp: $TP, gpus: "$GPUS", args: '${VLLM_ARGS:-}'}
 model: {repo: "$MODEL", revision: "$REVISION"}
-command: "vllm serve <snapshot of $MODEL@$REVISION> --tensor-parallel-size $TP ${VLLM_ARGS:-}"
+command: 'vllm serve <snapshot of $MODEL@$REVISION> --tensor-parallel-size $TP --seed 1234 --enable-prefix-caching ${VLLM_ARGS:-}'
 workloads: {chat: "workloads/chat_1k.jsonl", agent: "workloads/agent_8k.jsonl",
             chat_conc: "$CHAT_CONC", agent_conc: "$AGENT_CONC", reps: $REPS, extra_body: '$EXTRA_BODY'}
 notes: fixed output lengths (ignore_eos); unique prompts per request (--fresh); prefix caching on (vLLM default)
