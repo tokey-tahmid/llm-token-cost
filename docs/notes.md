@@ -2,7 +2,15 @@
 
 Findings, surprises and corrections, dated. Numbers come from `results/tables/` unless a log is named.
 
-## 2026-10-15 · gpt-oss-120b, first sweeps
+## 2026-10-15 · Correction: the first gpt-oss-120b results are withdrawn
+
+Every gpt-oss-120b run so far asked for a fixed output length with `ignore_eos`. gpt-oss ends an answer with a harmony end token; ignoring it let generation continue, and vLLM's streaming parser then raised `HarmonyError: Unexpected token 200002 while expecting start token 200006` (2,025 times in one run's log). The stream ended without a finish reason or usage. Share of requests cut short: about 58% on the agent workload, 59% on the 8K/1K workload, 3% on chat. The client ignored the in-stream error event, so the runs looked clean.
+
+Consequences: those requests left the server early, so it ran lighter than the nominal user count, and their tokens were not counted. The throughput, latency and cost numbers in the gpt-oss section below are therefore not valid, the agent ones least of all; the verdicts drawn from them are withdrawn until the rerun. Still valid, because they do not depend on the requests: KV cache sizes (startup log), idle power, and the provider price snapshot.
+
+Fix (commit `fa7c295`): gpt-oss requests use `min_tokens = max_tokens` instead of `ignore_eos`; the load generator records in-stream error events; the summary counts incomplete outputs per level and `cost.py` warns about them. The four affected runs are listed in `results/excluded_runs.yaml` and kept as records. Qwen3.8 runs are unaffected (0 incomplete). Short checks on vLLM and SGLang come first, then full reruns.
+
+## 2026-10-15 · gpt-oss-120b, first sweeps (withdrawn, see the correction above)
 
 Runs: `20261015T003247Z-gptoss120b-tp2-5341553` (2 GPUs), `20261015T011211Z-gptoss120b-tp4-5341554` (4 GPUs). A100-SXM4-40GB, vLLM v0.31.0, 3 reps per level, zero request errors.
 
