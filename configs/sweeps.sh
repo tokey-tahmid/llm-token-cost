@@ -22,5 +22,8 @@ SWEEPS=(
   "gptoss120b-tp4-sglang|openai/gpt-oss-120b|$GPTOSS|4|--context-length 16384|$OSS_BODY|01:10:00|sglang"
   # gpt-oss's MXFP4 path in SGLang is unoptimized on A100 (its own warning; job 5344814), so the
   # engine check also runs on a path SGLang optimizes: dense BF16
-  "qwen27b-bf16-tp2-sglang|Qwen/Qwen3.8-27B|$QWEN|2|--context-length 16384|$QWEN_BODY|01:40:00|sglang"
+  # SGLang's defaults cap this hybrid model at 4 running requests (Mamba state cache: 23 slots, 5 per
+  # request; smoke 5345106). Tuning, documented: static memory 0.88 (vLLM ran 0.92) and 160 state
+  # slots (32 requests); numerics at defaults.
+  "qwen27b-bf16-tp2-sglang|Qwen/Qwen3.8-27B|$QWEN|2|--context-length 16384 --mem-fraction-static 0.88 --max-mamba-cache-size 160|$QWEN_BODY|01:40:00|sglang"
 )
