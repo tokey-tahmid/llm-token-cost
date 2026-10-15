@@ -70,6 +70,14 @@ def end_labels(ax, items, min_gap_frac=0.06, log=True) -> None:
                     va="center", color=color, fontsize=22, annotation_clip=False)
 
 
+def legend_upper_right(ax) -> None:
+    """Curves fall from upper left to lower right, so the upper right stays clear; opaque so any
+    line passing behind it cannot cross the text."""
+    leg = ax.legend(loc="upper right", fontsize=21, handlelength=2.2, frameon=True, facecolor=style.ink("surface"),
+                    edgecolor=style.ink("surface"), framealpha=1)
+    leg.set_zorder(5)
+
+
 def slo_markers(ax, g, y, color) -> None:
     """Filled marker: level meets the SLO. Hollow: it does not (usually requests queueing)."""
     ok = g["within_slo"].astype(bool)
@@ -98,13 +106,13 @@ def cost_per_m(df, prices, workload, out):
 
 def cost_per_m_one(d, prices, workload, route, out):
     fig, ax = plt.subplots()
-    fig.subplots_adjust(left=0.1, right=0.78, top=0.8, bottom=0.2)
+    fig.subplots_adjust(left=0.1, right=0.95, top=0.8, bottom=0.2)
     labels = []
     for cfg, g in d.groupby("config", sort=False):
         g = g.sort_values("concurrency")
         c = color(cfg)
         ax.fill_between(g["concurrency"], g["usd_per_m_out_low"], g["usd_per_m_out_high"], color=c, alpha=0.12, lw=0)
-        ax.plot(g["concurrency"], g["usd_per_m_out_mid"], color=c)
+        ax.plot(g["concurrency"], g["usd_per_m_out_mid"], color=c, label=pretty(cfg, g["model"].iloc[0], g["tp"].iloc[0]))
         slo_markers(ax, g, "usd_per_m_out_mid", c)
         last = g.iloc[-1]
         labels.append((last["concurrency"], last["usd_per_m_out_mid"], pretty(cfg, last["model"], last["tp"]), c))
@@ -122,7 +130,7 @@ def cost_per_m_one(d, prices, workload, route, out):
     dollar_log_axis(ax)
     ax.set_xlabel("Concurrent users (log scale)")
     ax.set_ylabel("USD per 1M output tokens (log scale)")
-    end_labels(ax, labels)
+    legend_upper_right(ax)
     name = min(d["model"], key=len).split("/")[-1]  # the family's base model name (BF16 repo)
     style.titles(fig, ax, f"What a million output tokens costs: {name}, {workload}",
                  "Line: mid A100 rate, band: low to high. Dashed: API bill for the same requests. Hollow: misses SLO.")
@@ -170,11 +178,11 @@ def monthly(mon, prices, workload, out):
 def user_speed(df, prices, workload, out):
     d = df[df["workload"] == workload]
     fig, ax = plt.subplots()
-    fig.subplots_adjust(left=0.1, right=0.78, top=0.8, bottom=0.2)
+    fig.subplots_adjust(left=0.1, right=0.95, top=0.8, bottom=0.2)
     labels = []
     for cfg, g in d.groupby("config", sort=False):
         g = g.sort_values("concurrency")
-        ax.plot(g["concurrency"], g["decode_tok_s_user"], color=color(cfg))
+        ax.plot(g["concurrency"], g["decode_tok_s_user"], color=color(cfg), label=pretty(cfg, g["model"].iloc[0], g["tp"].iloc[0]))
         slo_markers(ax, g, "decode_tok_s_user", color(cfg))
         last = g.iloc[-1]
         labels.append((last["concurrency"], last["decode_tok_s_user"], pretty(cfg, last["model"], last["tp"]),
@@ -187,7 +195,7 @@ def user_speed(df, prices, workload, out):
     ax.set_ylim(bottom=0)
     ax.set_xlabel("Concurrent users (log scale)")
     ax.set_ylabel("Decode speed per user (tok/s)")
-    end_labels(ax, labels, log=False)
+    legend_upper_right(ax)
     style.titles(fig, ax, f"More users, slower each ({workload})", "Median time per output token as tok/s. Hollow: misses the SLO.")
     style.source_line(fig, footer(prices, "\nSLO: first token within 2 s and at least 20 tok/s per user, both at p95"))
     fig.savefig(out / f"user_speed_{workload}.png")
