@@ -42,37 +42,50 @@ async def one_request(client: httpx.AsyncClient, url: str, body: dict, save_text
     first = first_content = None
     text, reasoning = [], []
     try:
+        def handle(ev: dict) -> None:
+            nonlocal first, first_content
+            if ev.get("error") or ev.get("object") == "error":  # the server failed mid-stream
+                err = ev.get("error", ev)
+                rec["error"] = "stream: " + (err.get("message", str(err)) if isinstance(err, dict) else str(err))[:280]
+                return
+            if ev.get("usage"):
+                rec["usage"] = ev["usage"]
+            for ch in ev.get("choices") or []:
+                d = ch.get("delta") or {}
+                c = d.get("content") or ""
+                rc = d.get("reasoning_content") or d.get("reasoning") or ""
+                if c or rc:
+                    t = time.perf_counter() - t0
+                    rec["chunk_t"].append(round(t, 5))
+                    first = t if first is None else first
+                    if c and first_content is None:
+                        first_content = t
+                    text.append(c)
+                    reasoning.append(rc)
+                if ch.get("finish_reason"):
+                    rec["finish_reason"] = ch["finish_reason"]
+
         async with client.stream("POST", url, json=body) as r:
             if r.status_code != 200:
                 rec["error"] = f"HTTP {r.status_code}: {(await r.aread())[:300]!r}"
                 return rec | {"e2e_s": time.perf_counter() - t0}
-            async for line in r.aiter_lines():
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
+            # split on b"\n" only: aiter_lines() also breaks at U+2028/U+2029, which JSON may carry
+            # raw inside a string; it cut 7 of ~20,000 events in half (JSONDecodeError, 2026-10-15)
+            buf, done = b"", False
+            async for raw in r.aiter_bytes():
+                buf += raw
+                *lines, buf = buf.split(b"\n")
+                for line in lines:
+                    line = line.decode("utf-8").rstrip("\r")
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        done = True
+                        break
+                    handle(json.loads(data))
+                if done:
                     break
-                ev = json.loads(data)
-                if ev.get("error") or ev.get("object") == "error":  # the server failed mid-stream
-                    err = ev.get("error", ev)
-                    rec["error"] = "stream: " + (err.get("message", str(err)) if isinstance(err, dict) else str(err))[:280]
-                    continue
-                if ev.get("usage"):
-                    rec["usage"] = ev["usage"]
-                for ch in ev.get("choices") or []:
-                    d = ch.get("delta") or {}
-                    c = d.get("content") or ""
-                    rc = d.get("reasoning_content") or d.get("reasoning") or ""
-                    if c or rc:
-                        t = time.perf_counter() - t0
-                        rec["chunk_t"].append(round(t, 5))
-                        first = t if first is None else first
-                        if c and first_content is None:
-                            first_content = t
-                        text.append(c)
-                        reasoning.append(rc)
-                    if ch.get("finish_reason"):
-                        rec["finish_reason"] = ch["finish_reason"]
     except Exception as ex:  # record, don't retry: failures are results
         rec["error"] = f"{type(ex).__name__}: {ex}"[:300]
     out = "".join(text)
