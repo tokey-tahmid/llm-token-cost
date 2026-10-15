@@ -30,7 +30,7 @@ Runs (all with fixed output lengths verified: 0 incomplete outputs, errors under
 **Hypotheses as registered in the brief** (against the price it named: gpt-oss $0.037 in / $0.17 out, Qwen $0.04 / $2.30):
 - H1, one user costs ≥ 20× the API: **false**. Chat at one user costs 3× to 19× the named price at the mid rate (gpt-oss 4 GPUs 18.8×, Qwen FP8 2.9×). Against the cheapest provider, 12× to 24×.
 - H2, Qwen beats its API price from ≤ 16 users on one A100: **true** (FP8, one GPU, 4 users within the SLO: $1.99 against $2.40 for the same requests). gpt-oss never beats its API price on A100s: **false**; 4 GPUs at 48 chat users and the lowest rate cost $0.22 against $0.26.
-- H3, holding the SLO at least doubles the cost per token: **mixed**. Ratio of the cheapest level within the SLO to the cheapest level at all: gpt-oss chat 1.3× (2 GPUs) and 1.9× (4 GPUs), gpt-oss agent 1.2× and 2.0×, Qwen 3.0× to 3.3× (FP8 agent 5.5×), 8K/1K 3.7×.
+- H3, holding the SLO at least doubles the cost per token: **mixed**. Ratio of the cheapest level within the SLO to the cheapest level at all: on vLLM, gpt-oss chat 1.3× (2 GPUs) and 1.9× (4 GPUs), gpt-oss agent 1.2× and 2.0×, gpt-oss 8K/1K 3.7×; Qwen BF16 chat 3.0× and agent 3.3×, Qwen FP8 chat 2.2× and agent 3.1× (after its knee run; the 5.5× noted earlier predated it).
 - H4, the API is cheaper for agents at every load: **false for gpt-oss** (above); for Qwen, false only beyond the SLO (64 users: $0.59 at the low rate against $0.99).
 
 **Energy** (GPU board power only): 4 GPUs drew 706 W at 1 chat user and 1,389 W at 256; 3.1 to 0.23 J per output token, €0.26 to €0.02 per 1M tokens at €0.30/kWh. Idle with the model loaded: 61 to 63 W per GPU (60 s window, `run_facts.csv`).
