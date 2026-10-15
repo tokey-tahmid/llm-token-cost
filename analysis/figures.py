@@ -42,7 +42,7 @@ API_DAY = ""  # provider snapshot date, set in main from the tables
 
 def footer(prices: dict, extra: str = "") -> str:
     g = prices["gpu_list_prices"]
-    return (f"A100-SXM4-40GB · vLLM · medians of 3 reps · measured\n"
+    return (f"A100-SXM4-40GB · vLLM v0.31.0 (SGLang v0.5.21 where labelled) · medians of 3 reps unless a run hit its time limit · measured\n"
             f"GPU time priced at public list rates ${g['low']['usd_per_gpu_hour']}–{g['high']['usd_per_gpu_hour']}"
             f"/GPU-h ({g['as_of']}) · API: every live provider's list price for this model ({API_DAY}){extra}")
 
