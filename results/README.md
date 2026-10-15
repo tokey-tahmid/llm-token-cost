@@ -34,3 +34,5 @@ A run id containing `-knee-` adds concurrency levels to an existing configuratio
 | `usage` | Engine-reported `prompt_tokens`, `completion_tokens`, cached tokens |
 | `n_chunks`, `out_chars`, `reasoning_chars`, `out_sha256` | Output shape and a hash, used to detect nondeterminism |
 | `finish_reason`, `error` | Errors are recorded, never retried silently |
+
+`prices/<date>-openrouter-<model>.json` are dated snapshots of every provider's listed price for the benchmarked models (`scripts/fetch_api_prices.py`, public data). `analysis/cost.py` compares each level against the cheapest, median and priciest live endpoint for that level's token mix, and against the price named in `configs/prices.yaml`.

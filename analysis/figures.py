@@ -37,11 +37,14 @@ def color(cfg: str) -> str:
     return style.SLOTS[SLOT[cfg]]
 
 
+API_DAY = ""  # provider snapshot date, set in main from the tables
+
+
 def footer(prices: dict, extra: str = "") -> str:
-    g, a = prices["gpu_list_prices"], prices["api_list_prices"]
+    g = prices["gpu_list_prices"]
     return (f"A100-SXM4-40GB · vLLM · medians of 3 reps · measured\n"
             f"GPU time priced at public list rates ${g['low']['usd_per_gpu_hour']}–{g['high']['usd_per_gpu_hour']}"
-            f"/GPU-h ({g['as_of']}) · API list prices ({a['as_of']}){extra}")
+            f"/GPU-h ({g['as_of']}) · API: every live provider's list price for this model ({API_DAY}){extra}")
 
 
 def pretty(cfg: str, model: str, tp: int) -> str:
@@ -101,54 +104,60 @@ def cost_per_m(df, prices, workload, out):
         labels.append((last["concurrency"], last["usd_per_m_out_mid"], pretty(cfg, last["model"], last["tp"]), c))
     xmin, xmax = d["concurrency"].min(), d["concurrency"].max()
     for m, g in d.groupby("model"):  # API bill for the same requests, input tokens included
-        api = g["api_usd_per_m_out_blended"].median()
-        ax.hlines(api, xmin, xmax, color=style.ink("ink2"), lw=2, ls=(0, (6, 4)))
-        ax.annotate(f"API, {m.split('/')[-1]}: ${api:.2f}/M (input billed too)", (xmin, api),
-                    xytext=(4, -10), va="top", textcoords="offset points", color=style.ink("ink2"), fontsize=22)
+        for col, what, dash in (("api_usd_per_m_out_median", "median provider", (0, (6, 4))),
+                                ("api_usd_per_m_out_cheapest", "cheapest provider", (0, (2, 3)))):
+            api = g[col].median()
+            if np.isnan(api):
+                continue
+            ax.hlines(api, xmin, xmax, color=style.ink("ink2"), lw=2, ls=dash)
+            ax.annotate(f"API, {what}: ${api:.2f}/M", (xmin, api), xytext=(4, -10), va="top",
+                        textcoords="offset points", color=style.ink("ink2"), fontsize=22)
     concurrency_axis(ax, d["concurrency"])
     dollar_log_axis(ax)
     ax.set_xlabel("Concurrent users (log scale)")
     ax.set_ylabel("USD per 1M output tokens (log scale)")
     end_labels(ax, labels)
     style.titles(fig, ax, f"What a million output tokens costs, {workload} workload",
-                 "Line: mid A100 rate, band: low to high. Dashed: API, same requests. Hollow: misses the SLO.")
+                 "Line: mid A100 rate, band: low to high. Dashed: API bill for the same requests. Hollow: misses SLO.")
     style.source_line(fig, footer(prices, "\nSLO: first token within 2 s and at least 20 tok/s per user, both at p95"))
     fig.savefig(out / f"cost_per_m_{workload}.png")
     plt.close(fig)
 
 
 def monthly(mon, prices, workload, out):
-    d = mon[mon["workload"] == workload]
-    if d.empty:
-        return
-    fig, ax = plt.subplots()
-    fig.subplots_adjust(left=0.1, right=0.84, top=0.8, bottom=0.2)
-    vmax = max(d["capacity_out_tok_per_month"].max(), d["breakeven_out_tok_per_month_mid"].max()) * 1.3
-    x = np.linspace(0, vmax, 200)
-    for m, g in d.groupby("model"):  # the API line depends on the model only
-        r = g.iloc[0]
-        ax.plot(x / 1e9, x * r.api_usd_per_out_token_blended, color=style.ink("ink2"), ls=(0, (6, 4)), lw=2)
-        ax.annotate(f"API, {m.split('/')[-1]}", (x[-1] / 1e9, x[-1] * r.api_usd_per_out_token_blended),
-                    xytext=(-8, 0), textcoords="offset points", ha="right", va="bottom",
-                    color=style.ink("ink2"), fontsize=22)
-    for r in d.itertuples():
-        c = color(r.config)
-        cap = r.capacity_out_tok_per_month
-        ax.plot([0, cap / 1e9], [r.fixed_usd_per_month_mid] * 2, color=c, lw=4)
-        ax.plot(cap / 1e9, r.fixed_usd_per_month_mid, "o", color=c)
-        ax.annotate(f"{pretty(r.config, r.model, r.tp)}\n${r.fixed_usd_per_month_mid:,.0f}/month, "
-                    f"up to {cap / 1e9:.1f}B tokens", (0, r.fixed_usd_per_month_mid), xytext=(6, 12),
-                    textcoords="offset points", va="bottom", color=c, fontsize=22, linespacing=1.3)
-    ax.set_xlabel("Output tokens per month (billions)")
-    ax.set_ylabel("USD per month")
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v:,.0f}"))
-    ax.set_xlim(left=0, right=vmax / 1e9)
-    ax.set_ylim(bottom=0)
-    style.titles(fig, ax, f"When does renting a node beat the API? ({workload})",
-                 "Solid: GPUs rented 24/7 at the mid rate, flat up to their capacity within the SLO. Dashed: API.")
-    style.source_line(fig, footer(prices, "\ncapacity = max measured throughput with TTFT p95 ≤ 2 s and ≥ 20 tok/s per user (p95)"))
-    fig.savefig(out / f"monthly_{workload}.png")
-    plt.close(fig)
+    for m, d in mon[mon["workload"] == workload].groupby("model"):
+        fig, ax = plt.subplots()
+        fig.subplots_adjust(left=0.1, right=0.84, top=0.8, bottom=0.2)
+        cfgs = d.drop_duplicates("config")
+        refs = d.drop_duplicates("api_ref").set_index("api_ref")["api_usd_per_out_token_blended"]
+        vmax = cfgs["capacity_out_tok_per_month"].max() * 1.6
+        ytop = max(cfgs["fixed_usd_per_month_mid"].max() * 1.6, 1)
+        x = np.linspace(0, vmax, 200)
+        # the upper left is always clear (API lines start at the origin), so the legend goes there
+        for r in cfgs.itertuples():
+            c = color(r.config)
+            cap = r.capacity_out_tok_per_month
+            ax.plot([0, cap / 1e9], [r.fixed_usd_per_month_mid] * 2, color=c, lw=4,
+                    label=f"{pretty(r.config, r.model, r.tp)}: ${r.fixed_usd_per_month_mid:,.0f}/month, "
+                          f"up to {cap / 1e9:.1f}B tokens")
+            ax.plot(cap / 1e9, r.fixed_usd_per_month_mid, "o", color=c)
+        for ref, what, dash in (("median", "median provider", (0, (6, 4))), ("cheapest", "cheapest provider", (0, (2, 3)))):
+            if ref in refs:
+                ax.plot(x / 1e9, x * refs[ref], color=style.ink("ink2"), ls=dash, lw=2,
+                        label=f"API, {what}: ${refs[ref] * 1e6:.2f} per 1M output tokens, input included")
+        leg = ax.legend(loc="upper left", fontsize=21, handlelength=2.6, borderaxespad=0.3, frameon=True,
+                        facecolor=style.ink("surface"), edgecolor=style.ink("surface"), framealpha=1)
+        leg.set_zorder(5)  # opaque: lines pass behind it
+        ax.set_xlabel("Output tokens per month (billions)")
+        ax.set_ylabel("USD per month")
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v:,.0f}"))
+        ax.set_xlim(0, vmax / 1e9)
+        ax.set_ylim(0, ytop)
+        style.titles(fig, ax, f"When does renting GPUs beat the API? {m.split('/')[-1]}, {workload}",
+                     "Solid: GPUs rented 24/7 at the mid rate, flat up to their capacity within the SLO.")
+        style.source_line(fig, footer(prices, "\ncapacity = max measured throughput with TTFT p95 ≤ 2 s and ≥ 20 tok/s per user (p95)"))
+        fig.savefig(out / f"monthly_{workload}_{m.split('/')[-1]}.png")
+        plt.close(fig)
 
 
 def user_speed(df, prices, workload, out):
@@ -187,6 +196,9 @@ def main() -> None:
     prices = yaml.safe_load(Path(a.prices).read_text())
     df = pd.read_csv(Path(a.tables) / "cost_per_level.csv")
     mon = pd.read_csv(Path(a.tables) / "monthly_breakeven.csv")
+    global API_DAY
+    snaps = sorted(Path(a.tables).parent.glob("prices/*-openrouter-*.json"))
+    API_DAY = snaps[-1].name[:10] if snaps else "no snapshot"
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     style.use("dark")

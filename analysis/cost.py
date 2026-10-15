@@ -185,7 +185,32 @@ def idle_power(run: Path) -> tuple[float, int]:
     return float(w.groupby("gpu")["watts"].mean().sum()), int(w.groupby("gpu").size().min())
 
 
-def price_table(df: pd.DataFrame, prices: dict) -> pd.DataFrame:
+def api_endpoints(prices_dir: Path, route: str, day: str | None = None) -> pd.DataFrame:
+    """Live endpoints of one model from a dated snapshot (scripts/fetch_api_prices.py), USD per
+    token. Live: status 0 and, when reported, at least 95% uptime over the last 30 minutes."""
+    files = sorted(prices_dir.glob(f"*-openrouter-{route.replace('/', '--')}.json"))
+    if day:
+        files = [f for f in files if f.name.startswith(day)]
+    if not files:
+        return pd.DataFrame()
+    eps = json.loads(files[-1].read_text()).get("data", {}).get("endpoints", [])
+    num = lambda p, k: float(p[k]) if p.get(k) not in (None, "") else np.nan
+    rows = [{"provider": e.get("provider_name"), "tag": e.get("tag"), "quantization": e.get("quantization"),
+             "input": num(e["pricing"], "prompt"), "output": num(e["pricing"], "completion"),
+             "cache_read": num(e["pricing"], "input_cache_read"), "snapshot": files[-1].name}
+            for e in eps if e.get("status", 0) == 0 and (e.get("uptime_last_30m") is None or e["uptime_last_30m"] >= 95)]
+    return pd.DataFrame(rows)
+
+
+def api_bills(ep: pd.DataFrame, tok_in: float, tok_out: float, hit: float = 0.0) -> pd.Series:
+    """Each endpoint's bill for one request, per 1M output tokens. hit: share of the prompt billed
+    at the endpoint's cache-read price (its input price when it lists none)."""
+    cache = ep["cache_read"].fillna(ep["input"])
+    bill = tok_in * ((1 - hit) * ep["input"] + hit * cache) + tok_out * ep["output"]
+    return bill / tok_out * 1e6
+
+
+def price_table(df: pd.DataFrame, prices: dict, endpoints: dict, hits: dict) -> pd.DataFrame:
     gp, api = prices["gpu_list_prices"], prices["api_list_prices"]["models"]
     slo = prices["slo"]
     out = df.copy()
@@ -194,13 +219,27 @@ def price_table(df: pd.DataFrame, prices: dict) -> pd.DataFrame:
         out[f"usd_per_m_out_{k}"] = usd_h / (out["throughput_out_tok_s"] * 3600) * 1e6
         req_per_h = out["throughput_out_tok_s"] * 3600 / out["completion_tokens_med"]
         out[f"usd_per_req_self_{k}"] = usd_h / req_per_h
+    # the price named in the brief (one route, recorded before the runs): input + output for the same requests
     p_in = out["model"].map(lambda m: api.get(m, {}).get("input", np.nan))
     p_out = out["model"].map(lambda m: api.get(m, {}).get("output", np.nan))
     out["usd_per_req_api"] = (out["prompt_tokens_med"] * p_in + out["completion_tokens_med"] * p_out) / 1e6
     out["api_usd_per_m_out"] = p_out  # output-token list price alone
-    # what the API bills for the same requests (input + output) per 1M output tokens: the
-    # like-for-like comparison, since the self-hosted GPU time also covers the prefill
-    out["api_usd_per_m_out_blended"] = out["usd_per_req_api"] / out["completion_tokens_med"] * 1e6
+    out["api_usd_per_m_out_named"] = out["usd_per_req_api"] / out["completion_tokens_med"] * 1e6
+    # the market: every live provider's bill for the same requests, per 1M output tokens
+    for col in ("cheapest", "median", "priciest", "median_cached"):
+        out[f"api_usd_per_m_out_{col}"] = np.nan
+    out["api_endpoints"] = 0
+    for i, r in out.iterrows():
+        ep = endpoints.get(r["model"], pd.DataFrame())
+        if ep.empty:
+            continue
+        b = api_bills(ep, r["prompt_tokens_med"], r["completion_tokens_med"])
+        out.loc[i, ["api_usd_per_m_out_cheapest", "api_usd_per_m_out_median", "api_usd_per_m_out_priciest"]] = \
+            [b.min(), b.median(), b.max()]
+        h = hits.get((r["config"], r["workload"]), 0.0)
+        out.loc[i, "api_usd_per_m_out_median_cached"] = api_bills(ep, r["prompt_tokens_med"], r["completion_tokens_med"],
+                                                                  0.0 if np.isnan(h) else h).median()
+        out.loc[i, "api_endpoints"] = len(ep)
     out["within_slo"] = (out["ttft_p95_s"] <= slo["ttft_p95_s"]) & (out["tpot_p95_ms"] <= slo["tpot_p95_ms"])
     eur_kwh = prices["electricity"]["eur_per_kwh"]
     out["joules_per_out_token"] = out["power_w"] / out["throughput_out_tok_s"]
@@ -208,8 +247,10 @@ def price_table(df: pd.DataFrame, prices: dict) -> pd.DataFrame:
     return out
 
 
-def monthly(df: pd.DataFrame, prices: dict) -> pd.DataFrame:
-    """Per config and workload: capacity within SLO, fixed monthly cost, break-even volume."""
+def monthly(df: pd.DataFrame, prices: dict, endpoints: dict) -> pd.DataFrame:
+    """Per config, workload and API reference: capacity within the SLO, monthly rent of the GPUs,
+    break-even volume, and whether that volume fits in the capacity. API references: the price
+    named in the brief, and the cheapest and median live provider for the workload's token mix."""
     gp, api, hours = prices["gpu_list_prices"], prices["api_list_prices"]["models"], prices["hours_per_month"]
     rows = []
     for (config, workload), g in df.groupby(["config", "workload"]):
@@ -217,19 +258,22 @@ def monthly(df: pd.DataFrame, prices: dict) -> pd.DataFrame:
         cap = ok["throughput_out_tok_s"].max() if len(ok) else 0.0
         m = g["model"].iloc[0]
         tok_in, tok_out = g["prompt_tokens_med"].median(), g["completion_tokens_med"].median()
-        # API price per output token, carrying the input tokens each output token comes with
-        blend = (tok_in * api[m]["input"] + tok_out * api[m]["output"]) / tok_out / 1e6
-        row = {"config": config, "workload": workload, "model": m, "tp": int(g["tp"].iloc[0]),
-               "capacity_out_tok_s_within_slo": cap,
-               "capacity_out_tok_per_month": cap * 3600 * hours,
-               "api_usd_per_out_token_blended": blend}
-        for k in ("low", "mid", "high"):
-            fixed = gp[k]["usd_per_gpu_hour"] * row["tp"] * hours
-            row[f"fixed_usd_per_month_{k}"] = fixed
-            be = fixed / blend
-            row[f"breakeven_out_tok_per_month_{k}"] = be
-            row[f"self_host_can_win_{k}"] = bool(cap and be <= row["capacity_out_tok_per_month"])
-        rows.append(row)
+        refs = {"named": (tok_in * api[m]["input"] + tok_out * api[m]["output"]) / tok_out / 1e6}
+        ep = endpoints.get(m, pd.DataFrame())
+        if not ep.empty:
+            b = api_bills(ep, tok_in, tok_out) / 1e6
+            refs |= {"cheapest": b.min(), "median": b.median()}
+        for ref, blend in refs.items():
+            row = {"config": config, "workload": workload, "model": m, "tp": int(g["tp"].iloc[0]), "api_ref": ref,
+                   "capacity_out_tok_s_within_slo": cap, "capacity_out_tok_per_month": cap * 3600 * hours,
+                   "api_usd_per_out_token_blended": blend}
+            for k in ("low", "mid", "high"):
+                fixed = gp[k]["usd_per_gpu_hour"] * row["tp"] * hours
+                row[f"fixed_usd_per_month_{k}"] = fixed
+                be = fixed / blend
+                row[f"breakeven_out_tok_per_month_{k}"] = be
+                row[f"self_host_can_win_{k}"] = bool(cap and be <= row["capacity_out_tok_per_month"])
+            rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -238,17 +282,22 @@ def main() -> None:
     ap.add_argument("--raw", default=str(ROOT / "results/raw"))
     ap.add_argument("--prices", default=str(ROOT / "configs/prices.yaml"))
     ap.add_argument("--out", default=str(ROOT / "results/tables"))
+    ap.add_argument("--api-prices", default=str(ROOT / "results/prices"), help="dated provider snapshots")
+    ap.add_argument("--api-day", default=None, help="snapshot date YYYY-MM-DD (default: latest)")
     a = ap.parse_args()
     prices = yaml.safe_load(Path(a.prices).read_text())
     df, repeats = split_repeats(load_runs(Path(a.raw)))
-    df = price_table(df, prices)
-    mon = monthly(df, prices)
+    facts = pd.DataFrame([f for run in sorted(Path(a.raw).iterdir())
+                          if (run / "summary.csv").exists() and "-smoke-" not in run.name for f in run_facts(run)])
+    hits = {(r.config, r.workload): r.prefix_cache_hit_rate for r in facts.itertuples()} if len(facts) else {}
+    routes = {m: v["route"] for m, v in prices["api_list_prices"]["models"].items()}
+    endpoints = {m: api_endpoints(Path(a.api_prices), route, a.api_day) for m, route in routes.items()}
+    df = price_table(df, prices, endpoints, hits)
+    mon = monthly(df, prices, endpoints)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     df.to_csv(out / "cost_per_level.csv", index=False)
     mon.to_csv(out / "monthly_breakeven.csv", index=False)
-    facts = pd.DataFrame([f for run in sorted(Path(a.raw).iterdir()) if (run / "summary.csv").exists()
-                          for f in run_facts(run)])
     facts.to_csv(out / "run_facts.csv", index=False)
     print(facts.round(3).to_string(index=False), "\n")
     if len(repeats):
@@ -257,12 +306,14 @@ def main() -> None:
         print(repeats[cols].sort_values(cols[:4]).to_string(index=False), "\n")
     with pd.option_context("display.width", 220, "display.max_columns", 20, "display.precision", 3):
         print(df[["config", "workload", "concurrency", "throughput_out_tok_s", "decode_tok_s_user", "within_slo",
-                  "usd_per_m_out_low", "usd_per_m_out_mid", "usd_per_m_out_high", "api_usd_per_m_out_blended",
-                  "power_w"]].to_string(index=False))
+                  "usd_per_m_out_low", "usd_per_m_out_mid", "usd_per_m_out_high", "api_usd_per_m_out_named",
+                  "api_usd_per_m_out_cheapest", "api_usd_per_m_out_median", "api_usd_per_m_out_median_cached"]].to_string(index=False))
         print()
         print(mon.to_string(index=False))
-    print(f"\nwrote {out}/cost_per_level.csv and monthly_breakeven.csv "
-          f"(GPU prices as of {prices['gpu_list_prices']['as_of']}, API prices as of {prices['api_list_prices']['as_of']})")
+    snaps = sorted({e["snapshot"].iloc[0] for e in endpoints.values() if not e.empty})
+    print(f"\nwrote {out}/cost_per_level.csv and monthly_breakeven.csv (GPU prices as of "
+          f"{prices['gpu_list_prices']['as_of']}; named API prices as of {prices['api_list_prices']['as_of']}; "
+          f"provider snapshots {snaps})")
 
 
 if __name__ == "__main__":
