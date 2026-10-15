@@ -11,3 +11,7 @@
   reason: *harmony
 - run_id: 20261015T094339Z-gptoss120b-tp2-knee-5343439
   reason: *harmony
+- run_id: 20261015T094926Z-gptoss120b-tp4-long-5343670
+  reason: >-
+    Same HarmonyError problem (59% of 8K/1K requests cut short); cancelled after 23 minutes once the
+    cause was known. Rerun with min_tokens = max_tokens.
