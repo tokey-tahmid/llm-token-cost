@@ -17,6 +17,13 @@ OUT=logs/provision-$SLURM_JOB_ID.txt
 SIF=$CONTAINER_DIR/$VLLM_SIF
 [[ -s $SIF ]] || apptainer pull --force "$SIF" "docker://$VLLM_IMAGE"
 echo "$VLLM_IMAGE -> $VLLM_SIF sha256:$(sha256sum "$SIF" | cut -c1-16)" > "$OUT"
+if [[ -n "${SGLANG_IMAGE:-}" ]]; then
+    SIF=$CONTAINER_DIR/$SGLANG_SIF
+    # pull by digest: repo@sha256:... (the tag in SGLANG_IMAGE is for the record)
+    [[ -s $SIF ]] || apptainer pull --force "$SIF" "docker://${SGLANG_IMAGE%%:*}@${SGLANG_IMAGE##*@}"
+    echo "$SGLANG_IMAGE -> $SGLANG_SIF sha256:$(sha256sum "$SIF" | cut -c1-16)" >> "$OUT"
+    run_container "$SIF" python3 -c "import sglang; print('sglang', sglang.__version__)" >> "$OUT" 2>&1 || true
+fi
 
 if [[ ! -x $VENV/bin/python ]]; then
     python3 -m venv "$VENV"

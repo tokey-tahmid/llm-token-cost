@@ -48,7 +48,8 @@ def pretty(cfg: str, model: str, tp: int) -> str:
     """Viewer-facing config name: model, precision when the label names one, GPU count."""
     name = model.split("/")[-1]
     prec = next((p.upper() for p in ("bf16", "fp8", "int4", "awq", "gptq") if p in cfg.lower()), "")
-    return f"{name}{' ' + prec if prec else ''}, {tp} GPU{'s' if tp > 1 else ''}"
+    eng = ", SGLang" if "sglang" in cfg.lower() else ""
+    return f"{name}{' ' + prec if prec else ''}, {tp} GPU{'s' if tp > 1 else ''}{eng}"
 
 
 def end_labels(ax, items, min_gap_frac=0.06, log=True) -> None:

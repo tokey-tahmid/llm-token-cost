@@ -12,12 +12,15 @@
 # Configured through the environment (see scripts/submit_sweeps.sh):
 #   LABEL MODEL REVISION TP GPUS VLLM_ARGS EXTRA_BODY ALLOW IGNORE
 #   CHAT_CONC AGENT_CONC REPS
+#   ENGINE    vllm (default) or sglang; VLLM_ARGS then holds that engine's extra arguments
 #   RUN_TAG   optional, e.g. knee: extra concurrency levels for an existing config;
-#             analysis/cost.py merges them and keeps the first run of a repeated level
+#             analysis/cost.py merges them and keeps the first run of a repeated level;
+#             RUN_TAG=smoke marks a short check run that the analysis skips
 set -euo pipefail
 source "${SLURM_SUBMIT_DIR:?}/slurm/common.sh"
 source configs/versions.env
 SIF_VLLM=$CONTAINER_DIR/$VLLM_SIF
+ENGINE=${ENGINE:-vllm}
 
 : "${LABEL:?}" "${MODEL:?}" "${REVISION:?}" "${TP:?}"
 GPUS=${GPUS:-$(seq -s, 0 $((TP - 1)))}
@@ -32,7 +35,7 @@ RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)-$LABEL${RUN_TAG:+-$RUN_TAG}-$SLURM_JOB_ID
 R=results/raw/$RUN_ID
 mkdir -p "$R"
 PY=$VENV/bin/python
-echo "start $(date -u +%FT%TZ) label=$LABEL model=$MODEL@$REVISION tp=$TP gpus=$GPUS" | tee "$R/job.txt"
+echo "start $(date -u +%FT%TZ) label=$LABEL model=$MODEL@$REVISION tp=$TP gpus=$GPUS engine=$ENGINE" | tee "$R/job.txt"
 
 # 1. weights -> node tmpfs (only the files serving needs)
 t0=$(date +%s)
@@ -46,10 +49,17 @@ echo "download_s=$(( $(date +%s) - t0 )) size=$(du -shL "$LOCAL" | cut -f1)" | t
 # 2. server
 export CUDA_VISIBLE_DEVICES=$GPUS
 t0=$(date +%s)
+if [[ $ENGINE == sglang ]]; then  # prefix caching (radix cache) is on by default
+    SIF_SRV=$CONTAINER_DIR/$SGLANG_SIF; IMAGE=$SGLANG_IMAGE; ENGINE_NAME=SGLang; LOG=$R/server.log
+    SERVE=(python3 -m sglang.launch_server --model-path "$LOCAL" --served-model-name "$MODEL" --host 127.0.0.1
+           --port 8000 --tp-size "$TP" --random-seed 1234 --enable-metrics)
+else
+    SIF_SRV=$SIF_VLLM; IMAGE=$VLLM_IMAGE; ENGINE_NAME=vLLM; LOG=$R/vllm.log
+    SERVE=(vllm serve "$LOCAL" --served-model-name "$MODEL" --host 127.0.0.1 --port 8000
+           --tensor-parallel-size "$TP" --seed 1234 --enable-prefix-caching --no-enable-log-requests)
+fi
 # shellcheck disable=SC2086
-HF_HUB_OFFLINE=1 run_container "$SIF_VLLM" vllm serve "$LOCAL" --served-model-name "$MODEL" --host 127.0.0.1 --port 8000 \
-    --tensor-parallel-size "$TP" --seed 1234 --enable-prefix-caching --no-enable-log-requests \
-    ${VLLM_ARGS:-} > "$R/vllm.log" 2>&1 &
+HF_HUB_OFFLINE=1 run_container "$SIF_SRV" "${SERVE[@]}" ${VLLM_ARGS:-} > "$LOG" 2>&1 &
 SRV=$!
 # power.csv: UTC epoch, gpu index, board watts, utilization %, memory MiB (one line per GPU per second)
 ( while true; do t=$(date +%s.%N); nvidia-smi --query-gpu=index,power.draw,utilization.gpu,memory.used \
@@ -64,12 +74,12 @@ run_id: "$RUN_ID"
 label: "$LABEL"
 host_label: "${HOST_LABEL:-a100-40gb-sxm-node}"
 billing: allocated cluster time (no per-hour bill; priced at public list rates in analysis)
-engine: {name: vLLM, image: "$VLLM_IMAGE", tp: $TP, gpus: "$GPUS", args: '${VLLM_ARGS:-}'}
+engine: {name: $ENGINE_NAME, image: "$IMAGE", tp: $TP, gpus: "$GPUS", args: '${VLLM_ARGS:-}'}
 model: {repo: "$MODEL", revision: "$REVISION"}
-command: 'vllm serve <snapshot of $MODEL@$REVISION> --tensor-parallel-size $TP --seed 1234 --enable-prefix-caching ${VLLM_ARGS:-}'
+command: '${SERVE[*]/$LOCAL/<snapshot of $MODEL@$REVISION>} ${VLLM_ARGS:-}'
 workloads: {chat: "workloads/chat_1k.jsonl", agent: "workloads/agent_8k.jsonl",
             chat_conc: "$CHAT_CONC", agent_conc: "$AGENT_CONC", reps: $REPS, extra_body: '$EXTRA_BODY'}
-notes: fixed output lengths (ignore_eos); unique prompts per request (--fresh); prefix caching on (vLLM default)
+notes: fixed output lengths (ignore_eos); unique prompts per request (--fresh); prefix caching on
 EOF
 $PY bench/meta.py --base-url http://127.0.0.1:8000 --config "$R/config.yaml" --out "$R/run.json"
 

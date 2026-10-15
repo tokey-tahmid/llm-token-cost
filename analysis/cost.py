@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def load_runs(raw_dir: Path) -> pd.DataFrame:
     rows = []
-    for run in sorted(p for p in raw_dir.iterdir() if (p / "summary.csv").exists()):
+    for run in sorted(p for p in raw_dir.iterdir() if (p / "summary.csv").exists() and "-smoke-" not in p.name):
         cfg = yaml.safe_load((run / "config.yaml").read_text()) if (run / "config.yaml").exists() else {}
         s = pd.read_csv(run / "summary.csv")
         per_rep = pd.read_csv(run / "summary_per_rep.csv") if (run / "summary_per_rep.csv").exists() else None
@@ -43,6 +43,7 @@ def load_runs(raw_dir: Path) -> pd.DataFrame:
         s["model"] = (cfg.get("model") or {}).get("repo")
         s["tp"] = int(eng.get("tp") or 1)
         s["config"] = cfg.get("label", run.name)
+        s["engine"] = eng.get("name", "vLLM")
         s["workload"] = s["label"].str.rsplit("-", n=1).str[-1].str.replace("_1k", "").str.replace("_8k", "")
         s["power_w"] = [mean_power(run, r) for r in s.itertuples()]
         rows.append(s)
@@ -141,12 +142,12 @@ def run_facts(run: Path) -> list[dict]:
     Idle power: the config's GPUs between server ready and the first request (an
     explicit idle window, idle_from/idle_to in job.txt, when the run recorded one)."""
     cfg = yaml.safe_load((run / "config.yaml").read_text()) if (run / "config.yaml").exists() else {}
-    logf = next(iter(run.glob("vllm.log*")), None)
+    logf = next(iter(sorted(run.glob("vllm.log*")) + sorted(run.glob("server.log*"))), None)
     kv = np.nan
-    if logf:
+    if logf:  # vLLM: "GPU KV cache size: N tokens"; SGLang: "max_total_num_tokens=N"
         text = gzip.open(logf, "rt").read() if logf.suffix == ".gz" else logf.read_text()
-        m = re.search(r"GPU KV cache size: ([0-9,]+) tokens", text)
-        kv = float(m.group(1).replace(",", "")) if m else np.nan
+        m = re.search(r"GPU KV cache size: ([0-9,]+) tokens|max_total_num_tokens=([0-9]+)", text)
+        kv = float((m.group(1) or m.group(2)).replace(",", "")) if m else np.nan
     rows, prev_q, prev_h = [], 0.0, 0.0
     for wl in ("chat_1k", "agent_8k"):
         prom = run / f"metrics_after_{wl}.prom"

@@ -8,9 +8,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source configs/sweeps.sh
 for row in "${SWEEPS[@]}"; do
-    IFS='|' read -r label model rev tp args body wall <<< "$row"
+    IFS='|' read -r label model rev tp args body wall engine <<< "$row"
     if [[ $# -gt 0 && " $* " != *" $label "* ]]; then continue; fi
-    LABEL=$label MODEL=$model REVISION=$rev TP=$tp VLLM_ARGS=$args EXTRA_BODY=$body \
+    LABEL=$label MODEL=$model REVISION=$rev TP=$tp VLLM_ARGS=$args EXTRA_BODY=$body ENGINE=${engine:-vllm} \
         scripts/submit.sh slurm/sweep.sbatch --parsable --job-name="ltc-$label" --time="$wall" \
         --export=ALL ${DEP:+--dependency=$DEP}
 done

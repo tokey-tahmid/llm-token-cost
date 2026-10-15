@@ -1,5 +1,5 @@
 # Serving configurations for the sweep (sourced by scripts/submit_sweeps.sh).
-# label | model | revision | TP | vllm args | request extra body | walltime
+# label | model | revision | TP | engine args | request extra body | walltime | engine (default vllm)
 QWEN=1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0
 QWEN_FP8=017b9c7af6b5689d5dd426a76e0bc077eb5ca20a
 GPTOSS=b5c939de8f754692c1647ca79fbf85e8c1e70f8a
@@ -15,4 +15,6 @@ SWEEPS=(
   "qwen27b-fp8-tp1|Qwen/Qwen3.8-27B-FP8|$QWEN_FP8|1|--max-model-len 16384 --gpu-memory-utilization 0.92 --max-num-seqs 96 $NO_MM|$QWEN_BODY|01:50:00"
   "gptoss120b-tp2|openai/gpt-oss-120b|$GPTOSS|2|--max-model-len 16384 --gpu-memory-utilization 0.94|$OSS_BODY|01:20:00"
   "gptoss120b-tp4|openai/gpt-oss-120b|$GPTOSS|4|--max-model-len 16384 --gpu-memory-utilization 0.92|$OSS_BODY|01:10:00"
+  # robustness check (brief 001): the headline configuration on SGLang, engine defaults apart from context length
+  "gptoss120b-tp4-sglang|openai/gpt-oss-120b|$GPTOSS|4|--context-length 16384|$OSS_BODY|01:10:00|sglang"
 )
