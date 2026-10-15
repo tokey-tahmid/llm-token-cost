@@ -15,21 +15,23 @@ Runs: `20261015T003247Z-gptoss120b-tp2-5341553` (2 GPUs), `20261015T011211Z-gpto
 | Config, workload | Highest level within SLO | Throughput | Self-hosted, low / mid GPU rate | API: named | cheapest | median |
 |---|---|---|---|---|---|---|
 | 2 GPUs, chat | 16 users | 1,118 tok/s | $0.32 / $0.50 | $0.26 | $0.22 | $0.75 |
-| 4 GPUs, chat | 16 users | 1,722 tok/s | $0.42 / $0.65 | $0.26 | $0.22 | $0.75 |
+| 4 GPUs, chat | 48 users (knee run) | 3,171 tok/s | $0.23 / $0.35 | $0.26 | $0.22 | $0.75 |
 | 2 GPUs, agent | 4 users | 251 tok/s | $1.43 / $2.21 | $1.05 | $0.86 | $2.88 |
 | 4 GPUs, agent | 16 users | 646 tok/s | $1.11 / $1.72 | $1.05 | $0.86 | $2.88 |
 
-Per month, renting the GPUs 24/7 (`monthly_breakeven.csv`):
-- **against the named or the cheapest price, self-hosting never wins** at any GPU rate: at measured capacity within the SLO, the API costs less. Closest: 4 GPUs, agent, lowest GPU rate, named price, where break-even needs 1.79B output tokens a month and capacity is 1.70B;
-- **against the median provider, it wins at the low and mid GPU rates** for both configurations and both workloads. 4 GPUs, chat, mid rate: break-even at 3.9B output tokens a month, capacity 4.5B. 2 GPUs, chat: 2.0B against 2.9B. At the highest GPU rate it never wins.
+Per month, renting the GPUs 24/7 (`monthly_breakeven.csv`, capacity = highest throughput within the SLO):
+- **against the cheapest provider, self-hosting never wins, but 4 GPUs on chat come within 1%:** at the lowest GPU rate, break-even needs 8.41B output tokens a month and the node serves 8.33B within the SLO;
+- **against the price named in the brief, 4 GPUs on chat win at the lowest GPU rate** (break-even 7.21B, capacity 8.33B), not at the mid rate (11.2B). So hypothesis H2, "gpt-oss-120b never beats its API price on A100s", is false at the lowest rate, and only once the sweep resolved the SLO boundary (see the knee run below);
+- **against the median provider, both configurations win on both workloads** at the low and mid GPU rates. 4 GPUs, chat, mid rate: break-even 3.9B, capacity 8.3B. Agent, the hardest case: 1.0B against 1.7B;
+- at the highest GPU rate, nothing wins against anyone.
 
-Hypothesis H2 was registered against the named price, and holds there for gpt-oss-120b. The video reports both readings. Providers are not named or ranked on screen (brief, risks).
+The video reports all three readings. Providers are not named or ranked on screen (brief, risks).
 
 Prompt caching barely moves the API side: most endpoints list no cache-read price, so crediting the share of the prompt our server served from cache (78% on 4 GPUs) lowers the median agent bill only from $2.88 to $2.78.
 
 **If users accept a wait, even the cheapest API is beaten.** 4 GPUs, chat, 256 users: $0.19 per 1M output tokens at the mid rate, below the cheapest provider's $0.22, but with p95 time to first token at 8.3 s and 30 tok/s per user. The verdict depends on the latency target and on which provider you compare with, more than on the GPU price.
 
-**The sweep is too coarse at the SLO boundary.** 4 GPUs, chat at 64 users misses the SLO by 0.18 s (p95 time to first token 2.18 s) at $0.31 mid, close to the API. Levels between 16 and 64 decide the verdict, so knee runs (`RUN_TAG=knee`, levels 16 to 64; 2 GPUs agent 4 to 16) are queued. Their repeats of 16 and 64 also measure run-to-run variation across nodes.
+**The SLO boundary decides the verdict, so it was measured finely** (knee run `20261015T090434Z-gptoss120b-tp4-knee-5343438`, another node). 4 GPUs, chat: 24, 32 and 48 users all meet the SLO (p95 first token 0.89, 1.17, 1.70 s); 48 users give 3,171 tok/s, 84% more than the 16-user level that bounded capacity before. Agent: 24 users miss by 6 ms (p95 first token 2.006 s), so 16 users remain the agent capacity; a threshold that sharp is worth saying on screen. The repeated levels reproduce across nodes within 1-5% on throughput and about 2% on p95 first token (`anchor_repeats.csv`). The 2-GPU knee run is queued.
 
 **Energy is a small part of the cost.** Board power of the GPUs in use (not the host), averaged over each level's requests: 4 GPUs at 256 chat users drew 1,387 W, 0.23 J per output token, about €0.02 per 1M output tokens at €0.30/kWh. At one user the same node needs 3.5 J per token.
 

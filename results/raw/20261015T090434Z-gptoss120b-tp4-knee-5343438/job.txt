@@ -1,0 +1,4 @@
+start 2026-10-15T09:04:34Z label=gptoss120b-tp4 model=openai/gpt-oss-120b@b5c939de8f754692c1647ca79fbf85e8c1e70f8a tp=4 gpus=0,1,2,3
+download_s=78 size=61G
+startup_s=216
+status=complete done=2026-10-15T09:23:44Z

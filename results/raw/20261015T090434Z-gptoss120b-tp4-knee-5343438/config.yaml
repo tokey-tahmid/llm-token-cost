@@ -1,0 +1,10 @@
+run_id: "20261015T090434Z-gptoss120b-tp4-knee-5343438"
+label: "gptoss120b-tp4"
+host_label: "a100-40gb-sxm-node"
+billing: allocated cluster time (no per-hour bill; priced at public list rates in analysis)
+engine: {name: vLLM, image: "vllm/vllm-openai:v0.31.0", tp: 4, gpus: "0,1,2,3", args: '--max-model-len 16384 --gpu-memory-utilization 0.92'}
+model: {repo: "openai/gpt-oss-120b", revision: "b5c939de8f754692c1647ca79fbf85e8c1e70f8a"}
+command: 'vllm serve <snapshot of openai/gpt-oss-120b@b5c939de8f754692c1647ca79fbf85e8c1e70f8a> --tensor-parallel-size 4 --seed 1234 --enable-prefix-caching --max-model-len 16384 --gpu-memory-utilization 0.92'
+workloads: {chat: "workloads/chat_1k.jsonl", agent: "workloads/agent_8k.jsonl",
+            chat_conc: "16 24 32 48 64", agent_conc: "16 24 32 48 64", reps: 3, extra_body: '{"ignore_eos": true, "reasoning_effort": "low"}'}
+notes: fixed output lengths (ignore_eos); unique prompts per request (--fresh); prefix caching on (vLLM default)
