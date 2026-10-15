@@ -27,6 +27,8 @@ import pandas as pd
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# workload file stem -> short name, in the order slurm/sweep.sbatch runs them
+WORKLOADS = {"chat_1k": "chat", "agent_8k": "agent", "long_8k1k": "long"}
 
 
 def load_runs(raw_dir: Path) -> pd.DataFrame:
@@ -44,7 +46,7 @@ def load_runs(raw_dir: Path) -> pd.DataFrame:
         s["tp"] = int(eng.get("tp") or 1)
         s["config"] = cfg.get("label", run.name)
         s["engine"] = eng.get("name", "vLLM")
-        s["workload"] = s["label"].str.rsplit("-", n=1).str[-1].str.replace("_1k", "").str.replace("_8k", "")
+        s["workload"] = s["label"].str.rsplit("-", n=1).str[-1].map(WORKLOADS)
         s["power_w"] = [mean_power(run, r) for r in s.itertuples()]
         rows.append(s)
     if not rows:
@@ -149,10 +151,12 @@ def run_facts(run: Path) -> list[dict]:
         m = re.search(r"GPU KV cache size: ([0-9,]+) tokens|max_total_num_tokens=([0-9]+)", text)
         kv = float((m.group(1) or m.group(2)).replace(",", "")) if m else np.nan
     rows, prev_q, prev_h = [], 0.0, 0.0
-    for wl in ("chat_1k", "agent_8k"):
+    for wl in WORKLOADS:
         prom = run / f"metrics_after_{wl}.prom"
+        if not prom.exists():
+            continue
         q, h = prom_total(prom, "vllm:prefix_cache_queries_total"), prom_total(prom, "vllm:prefix_cache_hits_total")
-        rows.append({"run_id": run.name, "config": cfg.get("label", run.name), "workload": wl.split("_")[0],
+        rows.append({"run_id": run.name, "config": cfg.get("label", run.name), "workload": WORKLOADS[wl],
                      "kv_cache_tokens": kv, "prefix_cache_hit_rate": (h - prev_h) / (q - prev_q) if q > prev_q else np.nan})
         if not np.isnan(q):
             prev_q, prev_h = q, h
@@ -240,6 +244,9 @@ def price_table(df: pd.DataFrame, prices: dict, endpoints: dict, hits: dict) -> 
         out.loc[i, "api_usd_per_m_out_median_cached"] = api_bills(ep, r["prompt_tokens_med"], r["completion_tokens_med"],
                                                                   0.0 if np.isnan(h) else h).median()
         out.loc[i, "api_endpoints"] = len(ep)
+    # input + output tokens per GPU per second: the unit published GPU comparisons (InferenceX) use
+    out["total_tok_s_per_gpu"] = (out["throughput_out_tok_s"] * (out["prompt_tokens_med"] + out["completion_tokens_med"])
+                                  / out["completion_tokens_med"] / out["tp"])
     out["within_slo"] = (out["ttft_p95_s"] <= slo["ttft_p95_s"]) & (out["tpot_p95_ms"] <= slo["tpot_p95_ms"])
     eur_kwh = prices["electricity"]["eur_per_kwh"]
     out["joules_per_out_token"] = out["power_w"] / out["throughput_out_tok_s"]

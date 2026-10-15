@@ -5,6 +5,10 @@
 chat_1k.jsonl   instruction first, then a ~3.4K-char passage (~1K tokens in), 400 out
 agent_8k.jsonl  shared ~6K-token system prefix (tool schemas + reference text), then a
                 task + ~6K-char passage (~1.6K tokens), 300 out
+long_8k1k.jsonl instruction, then a 29K-char passage (~8K tokens in), 1,024 out, no shared prefix:
+                the shape of SemiAnalysis InferenceX's published "8k/1k" runs, so our A100 numbers
+                can sit next to their H100/B200 numbers on the same workload shape. Passages start
+                every 9,700 chars (overlapping text, distinct starts) so a sweep never repeats a prompt.
 
 The task comes before the passage so prompts diverge early: only the agent
 workload's system prefix is meant to hit the prefix cache. Prompts are unique
@@ -72,6 +76,19 @@ def passages(texts: list[str], chars: int) -> list[str]:
     return out
 
 
+def windows(texts: list[str], chars: int, stride: int) -> list[str]:
+    """Exactly `chars` characters starting every `stride` characters, at paragraph starts."""
+    out = []
+    for t in texts:
+        starts = [0] + [m.end() for m in re.finditer(r"\n\n", t)]
+        nxt = 0
+        for st in starts:
+            if st >= nxt and st + chars <= len(t):
+                out.append(t[st: st + chars])
+                nxt = st + stride
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("src", help="directory with Gutenberg pg*.txt files")
@@ -101,12 +118,21 @@ def main() -> None:
         for i, (task, p) in enumerate(agent):
             f.write(json.dumps({"id": f"agent{i:05d}", "max_tokens": 300, "system_file": "agent_system.txt",
                                 "messages": [{"role": "user", "content": f"{task}\n\n---\n{p}"}]}) + "\n")
+    # own RNG, generated last: chat_1k and agent_8k stay byte-identical to earlier runs
+    rng_long = random.Random(20261015)
+    long = [(t, p) for p in windows(texts, 29000, 9700) for t in CHAT_TASKS]
+    rng_long.shuffle(long)
+    with open(out / "long_8k1k.jsonl", "w") as f:
+        for i, (task, p) in enumerate(long):
+            f.write(json.dumps({"id": f"long{i:05d}", "max_tokens": 1024,
+                                "messages": [{"role": "user", "content": f"{task}\n\n---\n{p}"}]}) + "\n")
     meta = {"sources": [f.name for f in files], "chat_prompts": len(chat), "agent_prompts": len(agent),
+            "long_prompts": len(long),
             "system_prefix_chars": len(system), "license": "Project Gutenberg texts (public domain); task text and tool schemas are ours",
             "seed": 20261014}
     import hashlib
     meta["sha256"] = {n: hashlib.sha256((out / n).read_bytes()).hexdigest()[:16]
-                      for n in ("chat_1k.jsonl", "agent_8k.jsonl", "agent_system.txt")}
+                      for n in ("chat_1k.jsonl", "agent_8k.jsonl", "agent_system.txt", "long_8k1k.jsonl")}
     (out / "workloads_meta.json").write_text(json.dumps(meta, indent=1))
     print(meta)
 

@@ -11,7 +11,8 @@
 # levels, 3 reps, warm-up, unique prompts, GPU power sampled every second.
 # Configured through the environment (see scripts/submit_sweeps.sh):
 #   LABEL MODEL REVISION TP GPUS VLLM_ARGS EXTRA_BODY ALLOW IGNORE
-#   CHAT_CONC AGENT_CONC REPS
+#   CHAT_CONC AGENT_CONC REPS   (an empty level list skips that workload)
+#   LONG_CONC levels for long_8k1k (8K in, 1K out, the InferenceX shape); unset = not run
 #   ENGINE    vllm (default) or sglang; VLLM_ARGS then holds that engine's extra arguments
 #   RUN_TAG   optional, e.g. knee: extra concurrency levels for an existing config;
 #             analysis/cost.py merges them and keeps the first run of a repeated level;
@@ -24,8 +25,8 @@ ENGINE=${ENGINE:-vllm}
 
 : "${LABEL:?}" "${MODEL:?}" "${REVISION:?}" "${TP:?}"
 GPUS=${GPUS:-$(seq -s, 0 $((TP - 1)))}
-CHAT_CONC=${CHAT_CONC:-"1 4 16 64 256"}
-AGENT_CONC=${AGENT_CONC:-"1 4 16 64 128"}
+CHAT_CONC=${CHAT_CONC-"1 4 16 64 256"}
+AGENT_CONC=${AGENT_CONC-"1 4 16 64 128"}
 REPS=${REPS:-3}
 EXTRA_BODY=${EXTRA_BODY:-'{"ignore_eos": true}'}
 ALLOW=${ALLOW:-'["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model", "*.tiktoken"]'}
@@ -78,7 +79,8 @@ engine: {name: $ENGINE_NAME, image: "$IMAGE", tp: $TP, gpus: "$GPUS", args: '${V
 model: {repo: "$MODEL", revision: "$REVISION"}
 command: '${SERVE[*]/$LOCAL/<snapshot of $MODEL@$REVISION>} ${VLLM_ARGS:-}'
 workloads: {chat: "workloads/chat_1k.jsonl", agent: "workloads/agent_8k.jsonl",
-            chat_conc: "$CHAT_CONC", agent_conc: "$AGENT_CONC", reps: $REPS, extra_body: '$EXTRA_BODY'}
+            long: "workloads/long_8k1k.jsonl", chat_conc: "$CHAT_CONC", agent_conc: "$AGENT_CONC",
+            long_conc: "${LONG_CONC:-}", reps: $REPS, extra_body: '$EXTRA_BODY'}
 notes: fixed output lengths (ignore_eos); unique prompts per request (--fresh); prefix caching on
 EOF
 $PY bench/meta.py --base-url http://127.0.0.1:8000 --config "$R/config.yaml" --out "$R/run.json"
@@ -89,6 +91,7 @@ echo "idle_from=$t_idle idle_to=$(date +%s.%N)" | tee -a "$R/job.txt"
 
 # 3. sweeps
 run() {  # workload, concurrency levels
+    [[ -z "${2// }" ]] && return 0
     $PY bench/loadgen.py --base-url http://127.0.0.1:8000/v1 --model "$MODEL" \
         --prompts "workloads/$1.jsonl" --concurrency $2 --requests 8 --requests-per-conc 4 \
         --warmup 4 --warmup-per-conc --reps "$REPS" --fresh --max-tokens 400 \
@@ -97,5 +100,9 @@ run() {  # workload, concurrency levels
 }
 run chat_1k "$CHAT_CONC"
 run agent_8k "$AGENT_CONC"
+if [[ -n "${LONG_CONC:-}" ]]; then  # generated deterministically; chat and agent files stay byte-identical
+    [[ -s workloads/long_8k1k.jsonl ]] || $PY workloads/make_workloads.py workloads/sources --out workloads > /dev/null
+    run long_8k1k "$LONG_CONC"
+fi
 $PY bench/summarize.py "$R"/raw_*.jsonl --out "$R/summary.csv"
 echo "status=complete done=$(date -u +%FT%TZ)" | tee -a "$R/job.txt"
