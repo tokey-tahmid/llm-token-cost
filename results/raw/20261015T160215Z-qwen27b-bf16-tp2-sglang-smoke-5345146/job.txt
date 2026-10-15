@@ -1,0 +1,2 @@
+start 2026-10-15T16:02:15Z label=qwen27b-bf16-tp2-sglang model=Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0 tp=2 gpus=0,1 engine=sglang
+download_s=38 size=52G
