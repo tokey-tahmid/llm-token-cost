@@ -27,6 +27,14 @@ import style  # noqa: E402
 from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
+# entity colors: a configuration keeps its palette slot in every chart (docs: style slots 1-4)
+SLOT = {"qwen27b-bf16-tp2": 0, "qwen27b-fp8-tp1": 1, "gptoss120b-tp2": 2, "gptoss120b-tp4": 3}
+
+
+def color(cfg: str) -> str:
+    if cfg not in SLOT:  # a new configuration takes the next free slot, in order of first use
+        SLOT[cfg] = len(SLOT)
+    return style.SLOTS[SLOT[cfg]]
 
 
 def footer(prices: dict, extra: str = "") -> str:
@@ -82,9 +90,9 @@ def cost_per_m(df, prices, workload, out):
     fig, ax = plt.subplots()
     fig.subplots_adjust(left=0.1, right=0.78, top=0.8, bottom=0.2)
     labels = []
-    for i, (cfg, g) in enumerate(d.groupby("config", sort=False)):
+    for cfg, g in d.groupby("config", sort=False):
         g = g.sort_values("concurrency")
-        c = style.SLOTS[i]
+        c = color(cfg)
         ax.fill_between(g["concurrency"], g["usd_per_m_out_low"], g["usd_per_m_out_high"], color=c, alpha=0.12, lw=0)
         ax.plot(g["concurrency"], g["usd_per_m_out_mid"], color=c)
         slo_markers(ax, g, "usd_per_m_out_mid", c)
@@ -122,8 +130,8 @@ def monthly(mon, prices, workload, out):
         ax.annotate(f"API, {m.split('/')[-1]}", (x[-1] / 1e9, x[-1] * r.api_usd_per_out_token_blended),
                     xytext=(-8, 0), textcoords="offset points", ha="right", va="bottom",
                     color=style.ink("ink2"), fontsize=22)
-    for i, r in enumerate(d.itertuples()):
-        c = style.SLOTS[i]
+    for r in d.itertuples():
+        c = color(r.config)
         cap = r.capacity_out_tok_per_month
         ax.plot([0, cap / 1e9], [r.fixed_usd_per_month_mid] * 2, color=c, lw=4)
         ax.plot(cap / 1e9, r.fixed_usd_per_month_mid, "o", color=c)
@@ -147,15 +155,15 @@ def user_speed(df, prices, workload, out):
     fig, ax = plt.subplots()
     fig.subplots_adjust(left=0.1, right=0.78, top=0.8, bottom=0.2)
     labels = []
-    for i, (cfg, g) in enumerate(d.groupby("config", sort=False)):
+    for cfg, g in d.groupby("config", sort=False):
         g = g.sort_values("concurrency")
-        ax.plot(g["concurrency"], g["decode_tok_s_user"], color=style.SLOTS[i])
-        slo_markers(ax, g, "decode_tok_s_user", style.SLOTS[i])
+        ax.plot(g["concurrency"], g["decode_tok_s_user"], color=color(cfg))
+        slo_markers(ax, g, "decode_tok_s_user", color(cfg))
         last = g.iloc[-1]
         labels.append((last["concurrency"], last["decode_tok_s_user"], pretty(cfg, last["model"], last["tp"]),
-                       style.SLOTS[i]))
+                       color(cfg)))
     slo = 1000.0 / prices["slo"]["tpot_p95_ms"]
-    ax.axhline(slo, color=style.STATUS["warning"], lw=2)
+    ax.axhline(slo, color=style.ink("muted"), lw=2)  # neutral: amber is an entity slot
     ax.annotate(f"usable: {slo:.0f} tok/s per user", (d["concurrency"].min(), slo), xytext=(4, 8),
                 textcoords="offset points", color=style.ink("ink2"), fontsize=22)
     concurrency_axis(ax, d["concurrency"])
