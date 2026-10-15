@@ -10,6 +10,7 @@ counted.
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 from pathlib import Path
 
@@ -75,7 +76,8 @@ def main() -> None:
     ap.add_argument("files", nargs="+")
     ap.add_argument("--out", help="CSV for the across-rep summary; per-rep goes next to it")
     a = ap.parse_args()
-    recs = [json.loads(l) for f in a.files for l in Path(f).read_text().splitlines() if l.strip()]
+    read = lambda f: gzip.open(f, "rt").read() if str(f).endswith(".gz") else Path(f).read_text()
+    recs = [json.loads(l) for f in a.files for l in read(f).splitlines() if l.strip()]  # .jsonl or .jsonl.gz
     df = per_request(pd.DataFrame(recs))
     per_rep, across = summarize(df)
     with pd.option_context("display.width", 200, "display.max_columns", 30, "display.precision", 3):

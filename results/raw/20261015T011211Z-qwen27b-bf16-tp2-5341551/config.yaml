@@ -1,0 +1,10 @@
+run_id: "20261015T011211Z-qwen27b-bf16-tp2-5341551"
+label: "qwen27b-bf16-tp2"
+host_label: "a100-40gb-sxm-node"
+billing: allocated cluster time (no per-hour bill; priced at public list rates in analysis)
+engine: {name: vLLM, image: "vllm/vllm-openai:v0.31.0", tp: 2, gpus: "0,1", args: "--max-model-len 16384 --gpu-memory-utilization 0.92 --limit-mm-per-prompt {"image":0,"video":0}"}
+model: {repo: "Qwen/Qwen3.8-27B", revision: "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"}
+command: "vllm serve <snapshot of Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0> --tensor-parallel-size 2 --max-model-len 16384 --gpu-memory-utilization 0.92 --limit-mm-per-prompt {"image":0,"video":0}"
+workloads: {chat: "workloads/chat_1k.jsonl", agent: "workloads/agent_8k.jsonl",
+            chat_conc: "1 4 16 64 256", agent_conc: "1 4 16 64 128", reps: 3, extra_body: '{"ignore_eos": true, "chat_template_kwargs": {"enable_thinking": false}}'}
+notes: fixed output lengths (ignore_eos); unique prompts per request (--fresh); prefix caching on (vLLM default)

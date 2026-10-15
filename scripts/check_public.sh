@@ -15,7 +15,14 @@ else
     files=$(git diff --cached --name-only --diff-filter=ACM)
 fi
 [[ -z $files ]] && exit 0
-hits=$(echo "$files" | xargs -I{} grep -H -n -i -E -f "$PATTERNS" -- {} 2>/dev/null || true)
+# compressed files are checked by content (packed logs), everything else as text
+hits=$(echo "$files" | while IFS= read -r f; do
+    if [[ $f == *.gz ]]; then
+        gzip -dc -- "$f" | grep -n -i -E -f "$PATTERNS" | sed "s|^|$f:|" || true
+    else
+        grep -H -n -i -E -I -f "$PATTERNS" -- "$f" 2>/dev/null || true
+    fi
+done | cut -c1-240)
 if [[ -n $hits ]]; then
     echo "check_public: private identifiers found, commit blocked:" >&2
     echo "$hits" | sed 's/^/  /' >&2

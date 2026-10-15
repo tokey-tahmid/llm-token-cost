@@ -2,6 +2,16 @@
 
 `raw/<run_id>/` holds one serving configuration's run. It is written only by `slurm/sweep.sbatch` and never edited by hand.
 
+Before commit, `scripts/pack_results.sh` gzips the request logs and server logs (`raw_*.jsonl.gz`, `vllm.log.gz`; the analysis reads them directly) and replaces site-specific identifiers, such as the node-local scratch path, with `<redacted>`. No measured value is touched. A run with no `summary.csv` is a failed attempt, kept as a record; its cause is in `docs/notes.md`.
+
+A run id containing `-knee-` adds concurrency levels to an existing configuration. `analysis/cost.py` merges it; where a level was measured twice, the first run is reported and both go to `tables/anchor_repeats.csv`.
+
+| File | Content |
+|---|---|
+| `tables/cost_per_level.csv` | Per configuration, workload and concurrency: latency, throughput, board power, list-price cost, API cost of the same requests |
+| `tables/monthly_breakeven.csv` | Capacity within the SLO, monthly rent, break-even volume, and whether self-hosting can win |
+| `figures/*.png` | `analysis/figures.py`, from the tables only |
+
 | File | Content |
 |---|---|
 | `job.txt` | Start time, model and revision, download and startup durations, completion status |

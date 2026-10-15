@@ -3,7 +3,7 @@
     python analysis/cost.py                      # reads results/raw/*, writes results/tables/
     python analysis/cost.py --raw tests/fixtures/HARNESS_SELFTEST --out /tmp/x   # harness check only
 
-Inputs per run folder: summary.csv (bench/summarize.py), config.yaml, power.csv, raw_*.jsonl.
+Inputs per run folder: summary.csv (bench/summarize.py), config.yaml, power.csv, raw_*.jsonl[.gz].
 Prices: configs/prices.yaml (dated, sourced). Nothing here estimates a measurement:
 throughput, latency and power come from the run; prices are labelled list prices.
 
@@ -17,6 +17,7 @@ Two framings:
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 from pathlib import Path
 
@@ -61,7 +62,7 @@ def split_repeats(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 def mean_power(run: Path, r) -> float:
     """Mean board power (all GPUs in the config) over this (label, concurrency) window."""
-    pw, raw = run / "power.csv", list(run.glob(f"raw_*{r.label.rsplit('-', 1)[-1]}*.jsonl"))
+    pw, raw = run / "power.csv", list(run.glob(f"raw_*{r.label.rsplit('-', 1)[-1]}*.jsonl*"))
     if not pw.exists() or not raw:
         return np.nan
     p = pd.read_csv(pw, header=None, names=["ts", "gpu", "watts", "util", "mem"], skipinitialspace=True)
@@ -77,7 +78,8 @@ def mean_power(run: Path, r) -> float:
         p["t"] = (naive - pd.Timestamp("1970-01-01")) / pd.Timedelta(seconds=1)
         p = p.dropna(subset=["t"])
         p["t"] -= local_offset_s(run, p["t"].min())
-    recs = [json.loads(l) for f in raw for l in f.read_text().splitlines() if l.strip()]
+    read = lambda f: gzip.open(f, "rt").read() if f.suffix == ".gz" else f.read_text()  # committed runs are gzipped
+    recs = [json.loads(l) for f in raw for l in read(f).splitlines() if l.strip()]
     w = [x for x in recs if x.get("concurrency") == r.concurrency and not x.get("warmup")]
     if not w:
         return np.nan
@@ -128,7 +130,10 @@ def price_table(df: pd.DataFrame, prices: dict) -> pd.DataFrame:
     p_in = out["model"].map(lambda m: api.get(m, {}).get("input", np.nan))
     p_out = out["model"].map(lambda m: api.get(m, {}).get("output", np.nan))
     out["usd_per_req_api"] = (out["prompt_tokens_med"] * p_in + out["completion_tokens_med"] * p_out) / 1e6
-    out["api_usd_per_m_out"] = p_out
+    out["api_usd_per_m_out"] = p_out  # output-token list price alone
+    # what the API bills for the same requests (input + output) per 1M output tokens: the
+    # like-for-like comparison, since the self-hosted GPU time also covers the prefill
+    out["api_usd_per_m_out_blended"] = out["usd_per_req_api"] / out["completion_tokens_med"] * 1e6
     out["within_slo"] = (out["ttft_p95_s"] <= slo["ttft_p95_s"]) & (out["tpot_p95_ms"] <= slo["tpot_p95_ms"])
     eur_kwh = prices["electricity"]["eur_per_kwh"]
     out["joules_per_out_token"] = out["power_w"] / out["throughput_out_tok_s"]
@@ -181,7 +186,8 @@ def main() -> None:
         print(repeats[cols].sort_values(cols[:4]).to_string(index=False), "\n")
     with pd.option_context("display.width", 220, "display.max_columns", 20, "display.precision", 3):
         print(df[["config", "workload", "concurrency", "throughput_out_tok_s", "decode_tok_s_user", "within_slo",
-                  "usd_per_m_out_low", "usd_per_m_out_high", "api_usd_per_m_out", "power_w"]].to_string(index=False))
+                  "usd_per_m_out_low", "usd_per_m_out_mid", "usd_per_m_out_high", "api_usd_per_m_out_blended",
+                  "power_w"]].to_string(index=False))
         print()
         print(mon.to_string(index=False))
     print(f"\nwrote {out}/cost_per_level.csv and monthly_breakeven.csv "

@@ -1,0 +1,35 @@
+name, driver_version, memory.total [MiB], clocks.max.sm [MHz], power.limit [W], pcie.link.gen.max
+NVIDIA A100-SXM4-40GB, 610.57.04, 40960 MiB, 1410 MHz, 400.00 W, 4
+NVIDIA A100-SXM4-40GB, 610.57.04, 40960 MiB, 1410 MHz, 400.00 W, 4
+NVIDIA A100-SXM4-40GB, 610.57.04, 40960 MiB, 1410 MHz, 400.00 W, 4
+NVIDIA A100-SXM4-40GB, 610.57.04, 40960 MiB, 1410 MHz, 400.00 W, 4
+	[4mGPU0	GPU1	GPU2	GPU3	NIC0	NIC1	CPU Affinity	NUMA Affinity	GPU NUMA ID[0m
+GPU0	 X 	NV4	NV4	NV4	SYS	SYS	24-31,88-95	3		N/A
+GPU1	NV4	 X 	NV4	NV4	PIX	SYS	8-15,72-79	1		N/A
+GPU2	NV4	NV4	 X 	NV4	SYS	PIX	56-63,120-127	7		N/A
+GPU3	NV4	NV4	NV4	 X 	SYS	SYS	40-47,104-111	5		N/A
+NIC0	SYS	PIX	SYS	SYS	 X 	SYS				
+NIC1	SYS	SYS	PIX	SYS	SYS	 X 				
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks
+
+NIC Legend:
+
+  NIC0: mlx5_0
+  NIC1: mlx5_1
+
+Thread(s) per core:  2
+Core(s) per socket:  32
+Socket(s):           2
+NUMA node(s):        8
+Model name:          AMD EPYC 7452 32-Core Processor
+              total        used        free      shared  buff/cache   available
+Mem:            503           5         491           5           6         490

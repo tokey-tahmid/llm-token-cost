@@ -1,0 +1,4 @@
+start 2026-10-15T00:32:47Z label=gptoss120b-tp2 model=openai/gpt-oss-120b@b5c939de8f754692c1647ca79fbf85e8c1e70f8a tp=2 gpus=0,1
+download_s=38 size=0
+startup_s=251
+status=complete done=2026-10-15T01:20:58Z
