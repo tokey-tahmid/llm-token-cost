@@ -73,6 +73,10 @@ notes: fixed output lengths (ignore_eos); unique prompts per request (--fresh); 
 EOF
 $PY bench/meta.py --base-url http://127.0.0.1:8000 --config "$R/config.yaml" --out "$R/run.json"
 
+# idle power: the server is ready and loaded, no requests (analysis/cost.py run_facts)
+t_idle=$(date +%s.%N); sleep 60
+echo "idle_from=$t_idle idle_to=$(date +%s.%N)" | tee -a "$R/job.txt"
+
 # 3. sweeps
 run() {  # workload, concurrency levels
     $PY bench/loadgen.py --base-url http://127.0.0.1:8000/v1 --model "$MODEL" \

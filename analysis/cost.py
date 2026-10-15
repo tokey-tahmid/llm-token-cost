@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -65,19 +66,7 @@ def mean_power(run: Path, r) -> float:
     pw, raw = run / "power.csv", list(run.glob(f"raw_*{r.label.rsplit('-', 1)[-1]}*.jsonl*"))
     if not pw.exists() or not raw:
         return np.nan
-    p = pd.read_csv(pw, header=None, names=["ts", "gpu", "watts", "util", "mem"], skipinitialspace=True)
-    gpus = job_gpus(run)              # the node's other GPUs are sampled too; count only this config's
-    if gpus:
-        p = p[p["gpu"].isin(gpus)]
-    epoch = pd.to_numeric(p["ts"], errors="coerce")
-    if epoch.notna().all():          # current format: UTC epoch seconds
-        p["t"] = epoch
-    else:                            # earlier format: nvidia-smi local timestamp, no zone
-        naive = pd.to_datetime(p["ts"], format="%Y/%m/%d %H:%M:%S.%f", errors="coerce")
-        # seconds via Timedelta: astype("int64") depends on the parsed resolution (ns, us or ms)
-        p["t"] = (naive - pd.Timestamp("1970-01-01")) / pd.Timedelta(seconds=1)
-        p = p.dropna(subset=["t"])
-        p["t"] -= local_offset_s(run, p["t"].min())
+    p = load_power(run)
     read = lambda f: gzip.open(f, "rt").read() if f.suffix == ".gz" else f.read_text()  # committed runs are gzipped
     recs = [json.loads(l) for f in raw for l in read(f).splitlines() if l.strip()]
     w = [x for x in recs if x.get("concurrency") == r.concurrency and not x.get("warmup")]
@@ -100,6 +89,24 @@ def job_gpus(run: Path) -> list[int]:
     return [int(g) for g in w.split("=", 1)[-1].split(",") if g.strip().isdigit()]
 
 
+def load_power(run: Path) -> pd.DataFrame:
+    """power.csv with a UTC epoch column t, restricted to the configuration's GPUs."""
+    p = pd.read_csv(run / "power.csv", header=None, names=["ts", "gpu", "watts", "util", "mem"], skipinitialspace=True)
+    gpus = job_gpus(run)              # the node's other GPUs are sampled too; count only this config's
+    if gpus:
+        p = p[p["gpu"].isin(gpus)]
+    epoch = pd.to_numeric(p["ts"], errors="coerce")
+    if epoch.notna().all():          # current format: UTC epoch seconds
+        p["t"] = epoch
+    else:                            # earlier format: nvidia-smi local timestamp, no zone
+        naive = pd.to_datetime(p["ts"], format="%Y/%m/%d %H:%M:%S.%f", errors="coerce")
+        # seconds via Timedelta: astype("int64") depends on the parsed resolution (ns, us or ms)
+        p["t"] = (naive - pd.Timestamp("1970-01-01")) / pd.Timedelta(seconds=1)
+        p = p.dropna(subset=["t"])
+        p["t"] -= local_offset_s(run, p["t"].min())
+    return p
+
+
 def local_offset_s(run: Path, first_sample_naive_s: float) -> float:
     """nvidia-smi stamps power samples in the node's local time without a zone; the
     request log uses UTC epochs. job.txt records the job start in UTC and the
@@ -116,6 +123,65 @@ def local_offset_s(run: Path, first_sample_naive_s: float) -> float:
     dl = next((float(w.split("=", 1)[1]) for w in words if w.startswith("download_s=")), 0.0)
     utc = pd.Timestamp(start).timestamp() + dl
     return round((first_sample_naive_s - utc) / 900) * 900.0
+
+
+def prom_total(path: Path, name: str) -> float:
+    """Sum of a Prometheus counter over its label sets (NaN if absent)."""
+    if not path.exists():
+        return np.nan
+    vals = [float(l.rsplit(" ", 1)[1]) for l in path.read_text().splitlines()
+            if l.startswith(name + "{") or l.startswith(name + " ")]
+    return sum(vals) if vals else np.nan
+
+
+def run_facts(run: Path) -> list[dict]:
+    """Per run and workload: KV cache size, prefix-cache hit rate, idle power.
+    Counters are cumulative over the server's life and the workloads run in the order
+    below, so each workload's share is the difference from the previous snapshot.
+    Idle power: the config's GPUs between server ready and the first request (an
+    explicit idle window, idle_from/idle_to in job.txt, when the run recorded one)."""
+    cfg = yaml.safe_load((run / "config.yaml").read_text()) if (run / "config.yaml").exists() else {}
+    logf = next(iter(run.glob("vllm.log*")), None)
+    kv = np.nan
+    if logf:
+        text = gzip.open(logf, "rt").read() if logf.suffix == ".gz" else logf.read_text()
+        m = re.search(r"GPU KV cache size: ([0-9,]+) tokens", text)
+        kv = float(m.group(1).replace(",", "")) if m else np.nan
+    rows, prev_q, prev_h = [], 0.0, 0.0
+    for wl in ("chat_1k", "agent_8k"):
+        prom = run / f"metrics_after_{wl}.prom"
+        q, h = prom_total(prom, "vllm:prefix_cache_queries_total"), prom_total(prom, "vllm:prefix_cache_hits_total")
+        rows.append({"run_id": run.name, "config": cfg.get("label", run.name), "workload": wl.split("_")[0],
+                     "kv_cache_tokens": kv, "prefix_cache_hit_rate": (h - prev_h) / (q - prev_q) if q > prev_q else np.nan})
+        if not np.isnan(q):
+            prev_q, prev_h = q, h
+    idle_w, n = idle_power(run)
+    for r in rows:
+        r["idle_power_w"], r["idle_samples_per_gpu"] = idle_w, n
+    return rows
+
+
+def idle_power(run: Path) -> tuple[float, int]:
+    job, pw = run / "job.txt", run / "power.csv"
+    if not (job.exists() and pw.exists()):
+        return np.nan, 0
+    kv = dict(w.split("=", 1) for w in job.read_text().split() if "=" in w)
+    if "idle_from" in kv:
+        t0, t1 = float(kv["idle_from"]), float(kv["idle_to"])
+    else:
+        words = job.read_text().split()
+        start = next((w for w in words if w.endswith("Z") and "T" in w), None)
+        raws = sorted(run.glob("raw_*.jsonl*"))
+        if not (start and "startup_s" in kv and raws):
+            return np.nan, 0
+        t0 = pd.Timestamp(start).timestamp() + float(kv.get("download_s", 0)) + float(kv["startup_s"]) + 2
+        read = lambda f: gzip.open(f, "rt").read() if f.suffix == ".gz" else f.read_text()
+        t1 = min(json.loads(l)["t_wall"] for f in raws for l in read(f).splitlines() if l.strip()) - 1
+    p = load_power(run)
+    w = p[(p["t"] >= t0) & (p["t"] <= t1)]
+    if w.empty:
+        return np.nan, 0
+    return float(w.groupby("gpu")["watts"].mean().sum()), int(w.groupby("gpu").size().min())
 
 
 def price_table(df: pd.DataFrame, prices: dict) -> pd.DataFrame:
@@ -180,6 +246,10 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     df.to_csv(out / "cost_per_level.csv", index=False)
     mon.to_csv(out / "monthly_breakeven.csv", index=False)
+    facts = pd.DataFrame([f for run in sorted(Path(a.raw).iterdir()) if (run / "summary.csv").exists()
+                          for f in run_facts(run)])
+    facts.to_csv(out / "run_facts.csv", index=False)
+    print(facts.round(3).to_string(index=False), "\n")
     if len(repeats):
         cols = ["config", "workload", "concurrency", "run_id", "throughput_out_tok_s", "ttft_p95_s", "tpot_p95_ms", "power_w"]
         repeats[cols].sort_values(cols[:4]).to_csv(out / "anchor_repeats.csv", index=False)
