@@ -1,0 +1,4 @@
+start 2026-10-15T08:57:33Z label=qwen27b-bf16-tp2 model=Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0 tp=2 gpus=0,1
+download_s=109 size=52G
+startup_s=331
+status=complete done=2026-10-15T10:20:58Z
