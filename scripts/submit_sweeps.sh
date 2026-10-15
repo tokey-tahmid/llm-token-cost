@@ -2,6 +2,8 @@
 # Submit one sweep job per serving configuration in configs/sweeps.sh.
 #   scripts/submit_sweeps.sh [label ...]      (default: all)
 #   DEP=afterok:<jobid> scripts/submit_sweeps.sh   (hold until a probe succeeds)
+#   RUN_TAG=knee CHAT_CONC="16 24 32 48 64" AGENT_CONC="..." scripts/submit_sweeps.sh <label>
+#                                              (extra levels for one config, merged in analysis)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source configs/sweeps.sh

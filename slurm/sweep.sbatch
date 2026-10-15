@@ -12,6 +12,8 @@
 # Configured through the environment (see scripts/submit_sweeps.sh):
 #   LABEL MODEL REVISION TP GPUS VLLM_ARGS EXTRA_BODY ALLOW IGNORE
 #   CHAT_CONC AGENT_CONC REPS
+#   RUN_TAG   optional, e.g. knee: extra concurrency levels for an existing config;
+#             analysis/cost.py merges them and keeps the first run of a repeated level
 set -euo pipefail
 source "${SLURM_SUBMIT_DIR:?}/slurm/common.sh"
 source configs/versions.env
@@ -26,7 +28,7 @@ EXTRA_BODY=${EXTRA_BODY:-'{"ignore_eos": true}'}
 ALLOW=${ALLOW:-'["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model", "*.tiktoken"]'}
 IGNORE=${IGNORE:-'["original/*", "metal/*"]'}
 
-RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)-$LABEL-$SLURM_JOB_ID
+RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)-$LABEL${RUN_TAG:+-$RUN_TAG}-$SLURM_JOB_ID
 R=results/raw/$RUN_ID
 mkdir -p "$R"
 PY=$VENV/bin/python

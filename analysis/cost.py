@@ -49,17 +49,33 @@ def load_runs(raw_dir: Path) -> pd.DataFrame:
     return pd.concat(rows, ignore_index=True)
 
 
+def split_repeats(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Knee runs (RUN_TAG in slurm/sweep.sbatch) add concurrency levels to a config and
+    repeat a few levels as anchors. The first run of each (config, workload, concurrency)
+    is the reported value; every row of a repeated level goes to the second frame, a
+    cross-run (and usually cross-node) reproducibility check."""
+    key = ["config", "workload", "concurrency"]
+    df = df.sort_values("run_id", kind="stable")
+    return df[~df.duplicated(key, keep="first")].reset_index(drop=True), df[df.duplicated(key, keep=False)]
+
+
 def mean_power(run: Path, r) -> float:
     """Mean board power (all GPUs in the config) over this (label, concurrency) window."""
     pw, raw = run / "power.csv", list(run.glob(f"raw_*{r.label.rsplit('-', 1)[-1]}*.jsonl"))
     if not pw.exists() or not raw:
         return np.nan
     p = pd.read_csv(pw, header=None, names=["ts", "gpu", "watts", "util", "mem"], skipinitialspace=True)
+    gpus = job_gpus(run)              # the node's other GPUs are sampled too; count only this config's
+    if gpus:
+        p = p[p["gpu"].isin(gpus)]
     epoch = pd.to_numeric(p["ts"], errors="coerce")
     if epoch.notna().all():          # current format: UTC epoch seconds
         p["t"] = epoch
     else:                            # earlier format: nvidia-smi local timestamp, no zone
-        p["t"] = pd.to_datetime(p["ts"], format="%Y/%m/%d %H:%M:%S.%f", errors="coerce").astype("int64") / 1e9
+        naive = pd.to_datetime(p["ts"], format="%Y/%m/%d %H:%M:%S.%f", errors="coerce")
+        # seconds via Timedelta: astype("int64") depends on the parsed resolution (ns, us or ms)
+        p["t"] = (naive - pd.Timestamp("1970-01-01")) / pd.Timedelta(seconds=1)
+        p = p.dropna(subset=["t"])
         p["t"] -= local_offset_s(run, p["t"].min())
     recs = [json.loads(l) for f in raw for l in f.read_text().splitlines() if l.strip()]
     w = [x for x in recs if x.get("concurrency") == r.concurrency and not x.get("warmup")]
@@ -69,7 +85,17 @@ def mean_power(run: Path, r) -> float:
     win = p[(p["t"] >= t0) & (p["t"] <= t1)]
     if win.empty:
         return np.nan
-    return float(win.groupby("t")["watts"].sum().mean())  # sum over GPUs, mean over time
+    # mean over time per GPU, then sum over GPUs (each GPU's row carries its own ms timestamp)
+    return float(win.groupby("gpu")["watts"].mean().sum())
+
+
+def job_gpus(run: Path) -> list[int]:
+    """GPU indices the server ran on, from job.txt's gpus=0,1 (empty if not recorded)."""
+    job = run / "job.txt"
+    if not job.exists():
+        return []
+    w = next((w for w in job.read_text().split() if w.startswith("gpus=")), "")
+    return [int(g) for g in w.split("=", 1)[-1].split(",") if g.strip().isdigit()]
 
 
 def local_offset_s(run: Path, first_sample_naive_s: float) -> float:
@@ -142,12 +168,17 @@ def main() -> None:
     ap.add_argument("--out", default=str(ROOT / "results/tables"))
     a = ap.parse_args()
     prices = yaml.safe_load(Path(a.prices).read_text())
-    df = price_table(load_runs(Path(a.raw)), prices)
+    df, repeats = split_repeats(load_runs(Path(a.raw)))
+    df = price_table(df, prices)
     mon = monthly(df, prices)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     df.to_csv(out / "cost_per_level.csv", index=False)
     mon.to_csv(out / "monthly_breakeven.csv", index=False)
+    if len(repeats):
+        cols = ["config", "workload", "concurrency", "run_id", "throughput_out_tok_s", "ttft_p95_s", "tpot_p95_ms", "power_w"]
+        repeats[cols].sort_values(cols[:4]).to_csv(out / "anchor_repeats.csv", index=False)
+        print(repeats[cols].sort_values(cols[:4]).to_string(index=False), "\n")
     with pd.option_context("display.width", 220, "display.max_columns", 20, "display.precision", 3):
         print(df[["config", "workload", "concurrency", "throughput_out_tok_s", "decode_tok_s_user", "within_slo",
                   "usd_per_m_out_low", "usd_per_m_out_high", "api_usd_per_m_out", "power_w"]].to_string(index=False))
