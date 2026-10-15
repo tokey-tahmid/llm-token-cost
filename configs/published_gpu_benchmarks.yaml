@@ -1,0 +1,26 @@
+# Published throughput for gpt-oss-120b on newer GPUs, used only as a labelled reference next to our
+# own A100 measurement on the same workload shape (workloads/long_8k1k.jsonl). Not our data: different
+# team, engine version, parallelism and tuning. Never mixed with measured values without a label.
+source: "SemiAnalysis InferenceX run pages"
+retrieved: "2026-10-15"
+workload: "single-turn chat, 8k input / 1k output tokens"
+metric: "tokens/s per GPU at a per-user decode speed target; the pages' cost figures call these total tokens (input + output)"
+caveats:
+  - "Engine version and parallelism are not stated on the run pages."
+  - "Each row is the best engine and precision the page lists for that target (vLLM, FP4 for all rows used here)."
+  - "Pages are refreshed as new runs land; the run date ranges are recorded below."
+gpus:
+  H100:
+    url: "https://inferencex.semianalysis.com/run/gptoss-120b-on-h100"
+    run_dates: "2026-03-27 to 2026-05-17"
+    engine: vLLM
+    precision: fp4
+    tok_s_per_gpu_by_user_speed: {50: 8973, 75: 7136, 100: 5863, 150: 3931, 200: 2558}
+    page_gpu_usd_per_hour: {hyperscaler_owned: 1.17, retail: 2.00}
+  B200:
+    url: "https://inferencex.semianalysis.com/run/gptoss-120b-on-b200"
+    run_dates: "2026-02-05 to 2026-05-31"
+    engine: vLLM
+    precision: fp4
+    tok_s_per_gpu_by_user_speed: {50: 44489, 75: 34672, 100: 29548, 150: 20866, 200: 15470}
+    page_gpu_usd_per_hour: {hyperscaler_owned: 1.73, retail: 3.70}
