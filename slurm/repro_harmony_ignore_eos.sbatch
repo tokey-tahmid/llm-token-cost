@@ -35,7 +35,7 @@ cat > "$R/probe.py" <<'EOF'
 """Send streaming chat requests and classify how each stream ended."""
 import asyncio, collections, json, sys
 import httpx
-mode, n = sys.argv[1], int(sys.argv[2])
+mode, n, PORT = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 QUESTIONS = ["Answer in one sentence: what is the capital of France?", "Name three primary colours.",
              "What is 12 times 12?", "Give one word that rhymes with cat.", "Summarize the plot of Moby-Dick in two sentences."]
 async def one(client, i):
@@ -43,8 +43,9 @@ async def one(client, i):
             "stream_options": {"include_usage": True},
             "messages": [{"role": "user", "content": QUESTIONS[i % len(QUESTIONS)]}]}
     body |= {"ignore_eos": True} if mode == "ignore_eos" else {"min_tokens": 300}
+    url = f"http://127.0.0.1:{PORT}/v1/chat/completions"
     finish, usage, error = None, None, None
-    async with client.stream("POST", "http://127.0.0.1:8000/v1/chat/completions", json=body) as r:
+    async with client.stream("POST", url, json=body) as r:
         status = r.status_code
         buf = b""
         async for raw in r.aiter_bytes():  # split on b"\n" only (aiter_lines also splits at U+2028)
@@ -72,15 +73,21 @@ async def main():
 asyncio.run(main())
 EOF
 
+# each version on its own port, and the next starts only once the previous server is gone;
+# the version is read from the server that answers (GET /version), not from the image
+port=8000
 for sif in "$CONTAINER_DIR/$VLLM_SIF" "$NEW_SIF"; do
     tag=$(basename "$sif" .sif)
-    HF_HUB_OFFLINE=1 run_container "$sif" vllm serve "$LOCAL" --served-model-name m --host 127.0.0.1 --port 8000 \
+    HF_HUB_OFFLINE=1 run_container "$sif" vllm serve "$LOCAL" --served-model-name m --host 127.0.0.1 --port $port \
         --max-model-len 8192 --seed 1234 > "$R/server_$tag.log" 2>&1 &
     SRV=$!
-    wait_ready http://127.0.0.1:8000 900 $SRV
-    run_container "$sif" python3 -c "import vllm; print('$tag', 'vllm', vllm.__version__)" | tail -1 | tee -a "$R/results.txt"
-    for mode in ignore_eos min_tokens; do $PY "$R/probe.py" "$mode" 40 | tee -a "$R/results.txt"; done
-    echo "HarmonyError lines in the server log: $(grep -c HarmonyError "$R/server_$tag.log" || true)" | tee -a "$R/results.txt"
-    kill $SRV; wait $SRV 2>/dev/null || true; sleep 10
+    wait_ready http://127.0.0.1:$port 900 $SRV
+    echo "$tag answered by server version $(curl -s http://127.0.0.1:$port/version)" | tee -a "$R/results.txt"
+    for mode in ignore_eos min_tokens; do $PY "$R/probe.py" "$mode" 40 $port | tee -a "$R/results.txt"; done
+    echo "server log lines mentioning the parser error: $(grep -c -E 'HarmonyError|Unexpected token' "$R/server_$tag.log" || true)" | tee -a "$R/results.txt"
+    pkill -TERM -f "vllm serve $LOCAL" || true
+    for _ in $(seq 60); do pgrep -f "vllm serve $LOCAL" >/dev/null || break; sleep 2; done
+    pkill -KILL -f "vllm serve $LOCAL" 2>/dev/null || true
+    port=$((port + 1))
 done
 echo "status=complete" >> "$R/results.txt"
