@@ -15,3 +15,8 @@
   reason: >-
     Same HarmonyError problem (59% of 8K/1K requests cut short); cancelled after 23 minutes once the
     cause was known. Rerun with min_tokens = max_tokens.
+- run_id: 20261024T034439Z-repro-harmony-5380720
+  reason: >-
+    Reproduction of the gpt-oss ignore_eos failure whose v0.32.0 half is invalid: the v0.31.0
+    server was still holding the port, so the "v0.32.0" requests were answered by v0.31.0. The
+    v0.31.0 half is valid. Superseded by run 20261024T035456Z-repro-harmony-5380737.

@@ -1,0 +1,9 @@
+vllm-openai_v0.31.0 answered by server version {"version":"0.31.0"}
+{"mode": "ignore_eos", "requests": 40, "outcomes": {"HTTP 200, error event": 40}, "completion_tokens_min_max": null, "example_error": "{'message': 'Unexpected token 200002 while expecting start token 200006', 'type': 'InternalServerError', 'param': None, 'code': 500}"}
+{"mode": "min_tokens", "requests": 40, "outcomes": {"HTTP 200, finish=length": 40}, "completion_tokens_min_max": [300, 300], "example_error": null}
+server log lines mentioning the parser error: 40
+vllm-openai_v0.32.0 answered by server version {"version":"0.32.0"}
+{"mode": "ignore_eos", "requests": 40, "outcomes": {"HTTP 200, finish=length": 40}, "completion_tokens_min_max": [300, 300], "example_error": null}
+{"mode": "min_tokens", "requests": 40, "outcomes": {"HTTP 200, finish=length": 40}, "completion_tokens_min_max": [300, 300], "example_error": null}
+server log lines mentioning the parser error: 0
+status=complete

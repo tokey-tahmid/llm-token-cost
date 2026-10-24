@@ -97,3 +97,9 @@ Prompt caching barely moves the API side: most endpoints list no cache-read pric
 - `qwen27b-bf16-tp2-5341551`: the run's config.yaml was not valid YAML (the engine arguments contain JSON). Arguments and command lines are now single-quoted.
 - `qwen27b-fp8-tp1-5341552`: out of memory on one 40 GB GPU. CUDA-graph profiling with the default sequence limit wanted 12.25 GiB on top of the weights.
 - `qwen27b-fp8-tp1-5343417`: with the limit at 128, vLLM refused to start. The model is a hybrid and each running sequence holds one Mamba state block; 109 fit. The limit is now 96.
+
+## 2026-10-24 · The gpt-oss ignore_eos failure, reproduced and found fixed in vLLM 0.32.0
+
+Before reporting the failure from the 2026-10-15 correction upstream, I reproduced it in isolation (`slurm/repro_harmony_ignore_eos.sbatch`, job 5380737), with gpt-oss-20b on one A100 and 40 short streaming requests per case. On vLLM 0.31.0, every one of the 40 requests with `ignore_eos` ended with an error event inside an HTTP 200 stream ("Unexpected token 200002 while expecting start token 200006"), with no usage block, while all 40 requests using `min_tokens` equal to `max_tokens` finished normally at exactly 300 tokens. On vLLM 0.32.0, released on 2026-10-18, the same `ignore_eos` requests all finished normally at 300 tokens, and the server logged no parser errors. So the problem is fixed upstream, and there is nothing to report. The release notes don't name the change.
+
+The first attempt at this reproduction (job 5380720) is listed in `results/excluded_runs.yaml`, because its v0.32.0 requests were answered by the still-running v0.31.0 server. The fixed script gives each version its own port, waits for the previous server to exit, and reads the version from the server that answered.
