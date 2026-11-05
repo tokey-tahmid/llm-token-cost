@@ -4,6 +4,8 @@
 
 This repository measures how the cost per token changes with load when you serve open large language models yourself on NVIDIA A100 GPUs, and it compares that cost with what API providers charge for exactly the same requests. The answer comes as a break-even point for each model and workload, together with a formula that you can rerun with your own GPU price and your own traffic.
 
+I explain the results in [a video on my YouTube channel](https://youtu.be/J3wpRDOwKLA). If you'd like the main finding of each new video by email, along with something that didn't fit in it, you can [subscribe to my newsletter](https://inference-measured.beehiiv.com/subscribe).
+
 ## What I found
 
 The measurements are complete, and every number below traces back to a raw run under `results/raw/`. The dated findings, corrections and caveats are in `docs/notes.md`, and the tables and figures are in `results/tables/` and `results/figures/`.
